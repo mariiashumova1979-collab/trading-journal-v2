@@ -1,6 +1,3 @@
-// ═══════════════════════════════════════════════════════════
-// TRADE
-// ═══════════════════════════════════════════════════════════
 export type TradeType = 'LONG' | 'SHORT';
 export type TradeStatus = 'OPEN' | 'PARTIAL' | 'CLOSED';
 export type TradeResult = 'WIN' | 'LOSS' | null;
@@ -82,9 +79,6 @@ export interface SetupMetrics {
   rsi2?: number;
 }
 
-// ═══════════════════════════════════════════════════════════
-// CANDIDATE
-// ═══════════════════════════════════════════════════════════
 export type CandidateStatus =
   | 'WAITING_D1'
   | 'READY_ENTRY'
@@ -112,9 +106,6 @@ export interface Candidate {
   updated_at: string;
 }
 
-// ═══════════════════════════════════════════════════════════
-// IMPULSE-specific
-// ═══════════════════════════════════════════════════════════
 export interface ImpulsePayload {
   d_1: OHLCV;
   d0: OHLCV;
@@ -125,9 +116,6 @@ export interface ImpulsePayload {
   pattern?: string | null;
 }
 
-// ═══════════════════════════════════════════════════════════
-// STRATEGY DEFINITIONS
-// ═══════════════════════════════════════════════════════════
 export interface StrategyDef {
   id: Strategy;
   name: string;
@@ -141,7 +129,7 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   impulse: {
     id: 'impulse',
     name: 'Impulse',
-    icon: '🚀',
+    icon: 'IMP',
     color: '#e74c3c',
     description: 'Импульсное движение D0 с подтверждением на D+1',
     active: true
@@ -149,7 +137,7 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   rspc: {
     id: 'rspc',
     name: 'RSPC',
-    icon: '🎯',
+    icon: 'RSPC',
     color: '#f39c12',
     description: 'Range-Strength Pullback Continuation',
     active: false
@@ -157,7 +145,7 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   ibs_swing: {
     id: 'ibs_swing',
     name: 'IBS RSI(2)',
-    icon: '📊',
+    icon: 'IBS',
     color: '#3498db',
     description: 'Mean reversion на RSI(2) + IBS',
     active: false
@@ -165,7 +153,7 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   pead: {
     id: 'pead',
     name: 'PEAD',
-    icon: '📈',
+    icon: 'PEAD',
     color: '#9b59b6',
     description: 'Post-earnings drift',
     active: false
@@ -173,7 +161,7 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   event_continuation: {
     id: 'event_continuation',
     name: 'Event',
-    icon: '⚡',
+    icon: 'EVT',
     color: '#f1c40f',
     description: 'Event continuation после impulse',
     active: false

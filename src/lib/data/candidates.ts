@@ -1,19 +1,19 @@
-import { supabase } from "../supabase";
-import type { Candidate, Strategy, CandidateStatus } from "../types";
+import { supabase } from '../supabase';
+import type { Candidate, Strategy } from '../types';
 
 export async function listCandidates(strategy: Strategy): Promise<Candidate[]> {
   const { data, error } = await supabase
-    .from("candidates")
-    .select("*")
-    .eq("strategy", strategy)
-    .order("created_at", { ascending: false });
+    .from('candidates')
+    .select('*')
+    .eq('strategy', strategy)
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return (data as Candidate[]) || [];
 }
 
 export async function insertCandidate(row: Partial<Candidate>): Promise<Candidate> {
   const { data, error } = await supabase
-    .from("candidates")
+    .from('candidates')
     .insert(row)
     .select()
     .single();
@@ -23,9 +23,9 @@ export async function insertCandidate(row: Partial<Candidate>): Promise<Candidat
 
 export async function updateCandidate(id: string, patch: Partial<Candidate>): Promise<Candidate> {
   const { data, error } = await supabase
-    .from("candidates")
+    .from('candidates')
     .update(patch)
-    .eq("id", id)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
@@ -33,30 +33,29 @@ export async function updateCandidate(id: string, patch: Partial<Candidate>): Pr
 }
 
 export async function deleteCandidate(id: string): Promise<void> {
-  const { error } = await supabase.from("candidates").delete().eq("id", id);
+  const { error } = await supabase.from('candidates').delete().eq('id', id);
   if (error) throw error;
 }
 
-// Realtime subscription
 export function subscribeCandidates(
   strategy: Strategy,
   callback: (payload: { eventType: string; new: any; old: any }) => void
 ) {
   const channel = supabase
-    .channel("candidates_" + strategy)
+    .channel('candidates_' + strategy)
     .on(
-      "postgres_changes",
+      'postgres_changes' as any,
       {
-        event: "*",
-        schema: "public",
-        table: "candidates",
-        filter: "strategy=eq." + strategy,
+        event: '*',
+        schema: 'public',
+        table: 'candidates',
+        filter: 'strategy=eq.' + strategy
       },
       (payload) => {
         callback({
           eventType: payload.eventType,
           new: payload.new,
-          old: payload.old,
+          old: payload.old
         });
       }
     )

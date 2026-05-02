@@ -1,9 +1,5 @@
 import type { OHLCV, SetupMetrics, TradeType } from '../types';
 
-// ═══════════════════════════════════════════════════════════
-// Impulse — D0 metrics
-// ═══════════════════════════════════════════════════════════
-
 export interface ImpulseMetrics extends SetupMetrics {
   direction: TradeType | null;
 }
@@ -43,10 +39,6 @@ export function calculateImpulseD0Metrics(
   };
 }
 
-// ═══════════════════════════════════════════════════════════
-// Impulse — D0 validation
-// ═══════════════════════════════════════════════════════════
-
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
@@ -70,29 +62,29 @@ export function validateImpulseD0(
 
   if (!isLong && !isShort) {
     if (impulse > 0 && impulse < 0.05) {
-      errors.push(`Impulse +${(impulse * 100).toFixed(1)}% < +5% — слишком слабый для LONG`);
+      errors.push('Impulse +' + (impulse * 100).toFixed(1) + '% < +5% — слишком слабый для LONG');
     } else if (impulse > 0.12) {
-      errors.push(`Impulse +${(impulse * 100).toFixed(1)}% > +12% — слишком сильный (риск разворота)`);
+      errors.push('Impulse +' + (impulse * 100).toFixed(1) + '% > +12% — слишком сильный (риск разворота)');
     } else if (impulse < 0 && impulse > -0.05) {
-      errors.push(`Impulse ${(impulse * 100).toFixed(1)}% > −5% — слишком слабый для SHORT`);
+      errors.push('Impulse ' + (impulse * 100).toFixed(1) + '% > −5% — слишком слабый для SHORT');
     } else if (impulse < -0.12) {
-      errors.push(`Impulse ${(impulse * 100).toFixed(1)}% < −12% — слишком сильный (риск разворота)`);
+      errors.push('Impulse ' + (impulse * 100).toFixed(1) + '% < −12% — слишком сильный');
     } else {
-      errors.push(`Impulse ${(impulse * 100).toFixed(1)}% — недостаточен для LONG (≥+5%) или SHORT (≤−5%)`);
+      errors.push('Impulse ' + (impulse * 100).toFixed(1) + '% — недостаточен для LONG (>=+5%) или SHORT (<=-5%)');
     }
     return { valid: false, errors };
   }
 
   if (isLong) {
-    if ((m.clv ?? 0) <= 0.7) errors.push(`LONG: CLV ${(m.clv ?? 0).toFixed(2)} ≤ 0.70 — закрытие не в верхней части свечи`);
-    if ((m.body ?? 0) <= 0.5) errors.push(`LONG: Body ${(m.body ?? 0).toFixed(2)} ≤ 0.50 — свеча слабая/дожи`);
-    if (m.vol_ratio !== undefined && m.vol_ratio < 1.5) errors.push(`LONG: RelVol ${m.vol_ratio.toFixed(2)} < 1.5 — объём слабый`);
+    if ((m.clv ?? 0) <= 0.7) errors.push('LONG: CLV ' + (m.clv ?? 0).toFixed(2) + ' <= 0.70 — закрытие не в верхней части свечи');
+    if ((m.body ?? 0) <= 0.5) errors.push('LONG: Body ' + (m.body ?? 0).toFixed(2) + ' <= 0.50 — свеча слабая/дожи');
+    if (m.vol_ratio !== undefined && m.vol_ratio < 1.5) errors.push('LONG: RelVol ' + m.vol_ratio.toFixed(2) + ' < 1.5 — объём слабый');
   }
 
   if (isShort) {
-    if ((m.clv ?? 1) >= 0.3) errors.push(`SHORT: CLV ${(m.clv ?? 0).toFixed(2)} ≥ 0.30 — закрытие не в нижней части свечи`);
-    if ((m.body ?? 0) <= 0.5) errors.push(`SHORT: Body ${(m.body ?? 0).toFixed(2)} ≤ 0.50 — свеча слабая/дожи`);
-    if (m.vol_ratio !== undefined && m.vol_ratio < 1.5) errors.push(`SHORT: RelVol ${m.vol_ratio.toFixed(2)} < 1.5 — объём слабый`);
+    if ((m.clv ?? 1) >= 0.3) errors.push('SHORT: CLV ' + (m.clv ?? 0).toFixed(2) + ' >= 0.30 — закрытие не в нижней части свечи');
+    if ((m.body ?? 0) <= 0.5) errors.push('SHORT: Body ' + (m.body ?? 0).toFixed(2) + ' <= 0.50 — свеча слабая/дожи');
+    if (m.vol_ratio !== undefined && m.vol_ratio < 1.5) errors.push('SHORT: RelVol ' + m.vol_ratio.toFixed(2) + ' < 1.5 — объём слабый');
   }
 
   if (m.direction === null && errors.length === 0) {
@@ -101,10 +93,6 @@ export function validateImpulseD0(
 
   return { valid: errors.length === 0 && m.direction !== null, errors };
 }
-
-// ═══════════════════════════════════════════════════════════
-// D+1 Patterns
-// ═══════════════════════════════════════════════════════════
 
 export type PatternName = 'Inside Day' | 'Weak Pullback' | 'Compression';
 
@@ -152,19 +140,15 @@ export function checkImpulseD1Patterns(
   if (isCompression) matched.push('Compression');
 
   const details: string[] = [
-    `Inside Day: ${isInsideDay ? '✓' : '×'} (H1 ${H1.toFixed(2)}≤${H0.toFixed(2)} & L1 ${L1.toFixed(2)}≥${L0.toFixed(2)})`,
+    'Inside Day: ' + (isInsideDay ? 'ok' : 'no') + ' (H1 ' + H1.toFixed(2) + '<=' + H0.toFixed(2) + ' AND L1 ' + L1.toFixed(2) + '>=' + L0.toFixed(2) + ')',
     direction === 'LONG'
-      ? `Weak Pullback (LONG): ${isWeakPullback ? '✓' : '×'} (L1>${mid0.toFixed(2)}, retracement<50%, C1>${mid0.toFixed(2)})`
-      : `Weak Pullback (SHORT): ${isWeakPullback ? '✓' : '×'} (H1<${mid0.toFixed(2)}, retracement<50%, C1<${mid0.toFixed(2)})`,
-    `Compression: ${isCompression ? '✓' : '×'} (Range1/Range0=${(range1 / range0).toFixed(2)}<0.5)`
+      ? 'Weak Pullback (LONG): ' + (isWeakPullback ? 'ok' : 'no') + ' (L1>' + mid0.toFixed(2) + ', retracement<50%, C1>' + mid0.toFixed(2) + ')'
+      : 'Weak Pullback (SHORT): ' + (isWeakPullback ? 'ok' : 'no') + ' (H1<' + mid0.toFixed(2) + ', retracement<50%, C1<' + mid0.toFixed(2) + ')',
+    'Compression: ' + (isCompression ? 'ok' : 'no') + ' (Range1/Range0=' + (range1 / range0).toFixed(2) + '<0.5)'
   ];
 
   return { matched, details };
 }
-
-// ═══════════════════════════════════════════════════════════
-// Entry / Stop / Targets
-// ═══════════════════════════════════════════════════════════
 
 export function calculateEntryPrice(d0: OHLCV, atr: number, direction: TradeType): number {
   const H = d0.H ?? 0;
@@ -218,10 +202,6 @@ export function calculatePosition(
     risk_warning: risk_atr_ratio > 1.5
   };
 }
-
-// ═══════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════
 
 export function parseNum(value: string | number | null | undefined): number {
   if (value === null || value === undefined || value === '') return NaN;

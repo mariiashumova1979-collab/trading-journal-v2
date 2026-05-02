@@ -56,19 +56,15 @@ button {
   transition: all 0.15s;
 }
 
-button:hover {
-  background: var(--color-bg4);
-}
+button:hover { background: var(--color-bg4); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-p {
   background: var(--color-acc);
   color: var(--color-bg);
   border-color: var(--color-acc);
 }
-
-.btn-p:hover {
-  background: #6dd991;
-}
+.btn-p:hover { background: #6dd991; }
 
 .btn-r {
   background: transparent;
@@ -97,3 +93,5 @@ th {
   font-size: 10px;
   letter-spacing: 1px;
 }
+
+a { color: inherit; }

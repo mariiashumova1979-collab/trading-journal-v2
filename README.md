@@ -1,42 +1,51 @@
-# sv
+# Trading Journal v2
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+POC миграции Trading Journal с одного HTML файла на SvelteKit + Supabase.
 
-## Creating a project
+## Стек
 
-If you're seeing this, you've probably already done this step. Congrats!
+- **Frontend:** SvelteKit + TypeScript + Tailwind
+- **Backend:** Supabase (Postgres + Auth + Realtime)
+- **Hosting:** Vercel (планируется)
 
-```sh
-# create a new project
-npx sv create my-app
-```
+## Локальный запуск
 
-To recreate this project with the same configuration:
+```powershell
+# 1. Установить зависимости
+npm install
 
-```sh
-# recreate this project
-npx sv@0.15.2 create --template minimal --types ts --add prettier eslint tailwindcss="plugins:typography" --install npm .
-```
+# 2. Создать .env (см. ниже)
+copy .env.example .env
+# затем отредактировать .env и вставить свои ключи
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+# 3. Запустить dev-сервер
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Откроется на http://localhost:5173
 
-To create a production version of your app:
+## .env
 
-```sh
-npm run build
+```
+PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ```
 
-You can preview the production build with `npm run preview`.
+## Что в POC
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- ✅ Auth через magic link (Supabase)
+- ✅ Layout с табами стратегий (только Impulse активен)
+- ✅ Impulse Scanner полностью:
+  - Форма «+ Добавить кандидата» с валидацией
+  - D+1 паттерны (Inside Day / Weak Pullback / Compression)
+  - Открытие сделки с предрасчётом позиции
+- ✅ Список сделок с фильтрами
+- ✅ Realtime синхронизация между устройствами
+
+## Что НЕ в POC
+
+- IBS, RSPC, PEAD, Event scanners (добавим после валидации Impulse)
+- Watchlist
+- Setup analysis в карточке сделки
+- Дашборд расширенный
+- Quarterly results
