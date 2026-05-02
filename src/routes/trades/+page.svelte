@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { listTrades, deleteTrade, subscribeTrades } from '$lib/data/trades';
+  import { unbindCandidateFromTrade } from '$lib/data/sync';
   import type { Trade, Strategy, TradeStatus } from '$lib/types';
   import { STRATEGIES } from '$lib/types';
 
@@ -44,8 +45,9 @@
   });
 
   async function handleDelete(id: string) {
-    if (!confirm('Удалить сделку?')) return;
+    if (!confirm('Удалить сделку? Кандидат вернётся в статус "Готов вход".')) return;
     try {
+      await unbindCandidateFromTrade(id);
       await deleteTrade(id);
       trades = trades.filter((t) => t.id !== id);
     } catch (e: any) {

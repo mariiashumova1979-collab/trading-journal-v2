@@ -3,6 +3,8 @@
     calculateImpulseD0Metrics,
     validateImpulseD0,
     calculateEntryPrice,
+    calculateStopPrice,
+    calculatePosition,
     parseNum
   } from '$lib/strategies/impulse';
   import { insertCandidate } from '$lib/data/candidates';
@@ -20,10 +22,16 @@
   let d0_V = $state('');
   let atr = $state('');
   let relVol = $state('');
+  let riskAmt = $state('100');
 
   let errors = $state<string[]>([]);
   let preview = $state<any>(null);
   let saving = $state(false);
+
+  function onTickerInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    ticker = target.value.toUpperCase();
+  }
 
   function readForm() {
     return {
@@ -36,7 +44,8 @@
         V: parseNum(d0_V)
       },
       atrNum: parseNum(atr),
-      relVolNum: parseNum(relVol)
+      relVolNum: parseNum(relVol),
+      riskNum: parseNum(riskAmt)
     };
   }
 
@@ -66,6 +75,9 @@
 
     if (metrics.direction) {
       const entry = calculateEntryPrice(f.d0, f.atrNum, metrics.direction);
+      const stop = calculateStopPrice(f.d0, f.atrNum, metrics.direction);
+      const risk = isNaN(f.riskNum) ? 100 : f.riskNum;
+      const pos = calculatePosition(entry, stop, f.atrNum, risk, metrics.direction);
       preview = {
         direction: metrics.direction,
         impulse: metrics.impulse ?? 0,
@@ -73,6 +85,8 @@
         body: metrics.body ?? 0,
         range: metrics.range ?? 0,
         entry,
+        stop,
+        pos,
         d_1: f.d_1,
         d0: f.d0,
         atr: f.atrNum,
@@ -100,6 +114,9 @@
         direction: preview.direction,
         status: 'WAITING_D1',
         entry: preview.entry,
+        stop: preview.stop,
+        target1: preview.pos.target1,
+        target2: preview.pos.target2,
         payload: {
           d_1: preview.d_1,
           d0: preview.d0,
@@ -141,13 +158,13 @@
       <div><b>D0 SHORT:</b> Move -5% to -12%, CLV &lt; 0.30, Body &gt; 0.50, RelVol &gt;= 1.5</div>
       <div><b>D+1:</b> Inside Day OR Weak Pullback OR Compression</div>
       <div><b>Entry D+2:</b> LONG = High_D0 + 0.1*ATR; SHORT = Low_D0 - 0.1*ATR</div>
-      <div><b>Stop:</b> LONG = Low_D0 - 0.2*ATR; SHORT = High_D0 + 0.2*ATR (держится весь день входа)</div>
+      <div><b>Stop:</b> LONG = Low_D0 - 0.2*ATR; SHORT = High_D0 + 0.2*ATR</div>
     </div>
 
     <div class="row">
       <div class="fg">
         <label for="if-ticker">Ticker</label>
-        <input id="if-ticker" bind:value={ticker} placeholder="NVDA" />
+        <input id="if-ticker" value={ticker} oninput={onTickerInput} placeholder="NVDA" class="up" />
       </div>
       <div class="fg">
         <label for="if-d0date">D0 date</label>
@@ -173,10 +190,11 @@
       <div class="fg"><label for="if-d0v">Volume</label><input id="if-d0v" bind:value={d0_V} inputmode="numeric" /></div>
     </div>
 
-    <div class="shdif">Metrics</div>
-    <div class="row">
+    <div class="shdif">Metrics & risk</div>
+    <div class="row row-3">
       <div class="fg"><label for="if-atr">ATR(14)</label><input id="if-atr" bind:value={atr} inputmode="decimal" /></div>
       <div class="fg"><label for="if-relvol">RelVol</label><input id="if-relvol" bind:value={relVol} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-risk">Риск $</label><input id="if-risk" bind:value={riskAmt} inputmode="numeric" /></div>
     </div>
 
     {#if errors.length}
@@ -187,10 +205,15 @@
 
     {#if preview}
       <div class="prev">
-        <div class="prev-h">METRICS</div>
+        <div class="prev-h">D0 METRICS</div>
         <div>Direction: <b style="color:{preview.direction === 'LONG' ? 'var(--color-acc)' : 'var(--color-acc2)'}">{preview.direction}</b></div>
         <div>Impulse: <b>{fmtPct(preview.impulse)}</b> · CLV: <b>{preview.clv.toFixed(2)}</b> · Body: <b>{preview.body.toFixed(2)}</b></div>
-        <div>Entry (D+2): <b>${preview.entry.toFixed(2)}</b></div>
+
+        <div class="prev-h" style="margin-top:10px">POSITION FORECAST (риск ${parseNum(riskAmt) || 100})</div>
+        <div>Entry (D+2): <b style="color:var(--color-acc)">${preview.entry.toFixed(2)}</b> · Stop: <b style="color:var(--color-acc2)">${preview.stop.toFixed(2)}</b></div>
+        <div>Risk/share: <b>${preview.pos.risk_per_share.toFixed(2)}</b> · Risk/ATR: <b>{preview.pos.risk_atr_ratio.toFixed(2)}</b>{#if preview.pos.risk_warning}<span style="color:#ff9900"> ⚠ &gt; 1.5</span>{/if}</div>
+        <div>Shares: <b>{preview.pos.shares}</b> · Size: <b>${preview.pos.position_value.toFixed(0)}</b> · Real risk: <b>${preview.pos.risk_amount.toFixed(2)}</b></div>
+        <div>T1: <b>${preview.pos.target1.toFixed(2)}</b> (+1R) · T2: <b>${preview.pos.target2.toFixed(2)}</b> (+2R)</div>
       </div>
     {/if}
 
@@ -213,9 +236,11 @@
   .hint b { color: var(--color-text); }
   .shdif { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--color-text); margin: 14px 0 8px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row-3 { grid-template-columns: repeat(3, 1fr); }
   .row-5 { grid-template-columns: repeat(5, 1fr); }
   .fg label { display: block; font-family: var(--font-mono); font-size: 9px; color: var(--color-t2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   .fg input { width: 100%; }
+  .up { text-transform: uppercase; }
   .err { padding: 10px 12px; background: #ff000010; border: 1px solid #ff000040; color: var(--color-acc2); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; line-height: 1.7; }
   .prev { padding: 12px; background: var(--color-bg3); border: 1px solid var(--color-acc); color: var(--color-text); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; line-height: 1.9; }
   .prev-h { font-weight: 700; color: var(--color-acc); letter-spacing: 1px; margin-bottom: 6px; }

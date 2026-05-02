@@ -1,11 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
+  import { calculatePosition } from '$lib/strategies/impulse';
   import type { Candidate } from '$lib/types';
   import ImpulseForm from '$lib/components/ImpulseForm.svelte';
+  import D1Form from '$lib/components/D1Form.svelte';
+  import TradeForm from '$lib/components/TradeForm.svelte';
 
   let candidates = $state<Candidate[]>([]);
-  let showForm = $state(false);
+  let showAddForm = $state(false);
+  let d1Candidate = $state<Candidate | null>(null);
+  let tradeCandidate = $state<Candidate | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -25,9 +30,7 @@
 
   onMount(() => {
     load();
-    unsubscribe = subscribeCandidates('impulse', () => {
-      load();
-    });
+    unsubscribe = subscribeCandidates('impulse', () => load());
   });
 
   onDestroy(() => {
@@ -56,6 +59,24 @@
     };
     return map[s] || s;
   }
+
+  function statusColor(s: string) {
+    if (s === 'READY_ENTRY') return 'var(--color-acc)';
+    if (s === 'ENTERED') return 'var(--color-acc4)';
+    if (s === 'CLOSED') return 'var(--color-t3)';
+    if (s === 'REJECTED' || s === 'GAP_CANCEL') return 'var(--color-acc2)';
+    return 'var(--color-acc3)';
+  }
+
+  // Прогноз позиции (риск $100) — для всех активных кандидатов
+  function getProjectedPosition(c: Candidate) {
+    if (!c.entry || c.stop === null || c.stop === undefined || !c.direction || !c.payload?.atr) return null;
+    return calculatePosition(c.entry, Number(c.stop), c.payload.atr, 100, c.direction);
+  }
+
+  function isActive(s: string) {
+    return s === 'WAITING_D1' || s === 'READY_ENTRY' || s === 'WAITING_OPEN';
+  }
 </script>
 
 <div class="page">
@@ -64,7 +85,7 @@
       <h1>Impulse Scanner</h1>
       <p class="sub">Импульсное движение D0 + подтверждение паттерна на D+1</p>
     </div>
-    <button class="btn-p" onclick={() => (showForm = true)}>+ Добавить кандидата</button>
+    <button class="btn-p" onclick={() => (showAddForm = true)}>+ Добавить кандидата</button>
   </div>
 
   <div class="hint">
@@ -80,7 +101,7 @@
   {:else if error}
     <div class="state err">Ошибка: {error}</div>
   {:else if candidates.length === 0}
-    <div class="state">Нет кандидатов. Нажми «+ Добавить кандидата», чтобы внести первого.</div>
+    <div class="state">Нет кандидатов. Нажми «+ Добавить кандидата».</div>
   {:else}
     <div class="tw">
       <table>
@@ -89,11 +110,13 @@
             <th>Ticker</th>
             <th>D0 Date</th>
             <th>Dir</th>
-            <th>Impulse%</th>
+            <th>Imp%</th>
             <th>CLV</th>
             <th>Body</th>
             <th>RelVol</th>
+            <th>Pattern</th>
             <th>Entry</th>
+            <th>Stop</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -102,6 +125,7 @@
           {#each candidates as c (c.id)}
             {@const m = c.payload?.metrics}
             {@const dirColor = c.direction === 'LONG' ? 'var(--color-acc)' : 'var(--color-acc2)'}
+            {@const proj = getProjectedPosition(c)}
             <tr>
               <td><b>{c.ticker}</b></td>
               <td>{c.signal_date ?? '—'}</td>
@@ -110,12 +134,28 @@
               <td>{m?.clv !== undefined ? m.clv.toFixed(2) : '—'}</td>
               <td>{m?.body !== undefined ? m.body.toFixed(2) : '—'}</td>
               <td>{m?.vol_ratio !== undefined ? m.vol_ratio.toFixed(1) + 'x' : '—'}</td>
+              <td>{c.payload?.pattern ?? '—'}</td>
               <td>{c.entry !== null ? '$' + c.entry.toFixed(2) : '—'}</td>
-              <td>{statusLabel(c.status)}</td>
-              <td>
-                <button class="btn-r" onclick={() => handleDelete(c.id)} style="font-size: 9px; padding: 4px 8px;">Удалить</button>
+              <td>{c.stop !== null && c.stop !== undefined ? '$' + Number(c.stop).toFixed(2) : '—'}</td>
+              <td><span style="color:{statusColor(c.status)}">{statusLabel(c.status)}</span></td>
+              <td class="acts">
+                {#if c.status === 'WAITING_D1'}
+                  <button onclick={() => (d1Candidate = c)} style="font-size:9px;padding:4px 8px">+ D+1</button>
+                {/if}
+                {#if c.status === 'READY_ENTRY'}
+                  <button class="btn-p" onclick={() => (tradeCandidate = c)} style="font-size:9px;padding:4px 8px">+ Сделка</button>
+                {/if}
+                <button class="btn-r" onclick={() => handleDelete(c.id)} style="font-size:9px;padding:4px 8px">×</button>
               </td>
             </tr>
+            {#if proj && isActive(c.status)}
+              <tr class="proj-row">
+                <td colspan="12">
+                  <span class="proj-label">Прогноз позиции (риск $100):</span>
+                  Stop ${proj.stop.toFixed(2)} · Risk/share ${proj.risk_per_share.toFixed(2)} · Risk/ATR {proj.risk_atr_ratio.toFixed(2)}{proj.risk_warning ? ' ⚠' : ''} · Shares <b>{proj.shares}</b> · Size ${proj.position_value.toFixed(0)} · T1 ${proj.target1.toFixed(2)} · T2 ${proj.target2.toFixed(2)}
+                </td>
+              </tr>
+            {/if}
           {/each}
         </tbody>
       </table>
@@ -123,8 +163,24 @@
   {/if}
 </div>
 
-{#if showForm}
-  <ImpulseForm onClose={() => (showForm = false)} onAdded={load} />
+{#if showAddForm}
+  <ImpulseForm onClose={() => (showAddForm = false)} onAdded={load} />
+{/if}
+
+{#if d1Candidate}
+  <D1Form
+    candidate={d1Candidate}
+    onClose={() => (d1Candidate = null)}
+    onUpdated={load}
+  />
+{/if}
+
+{#if tradeCandidate}
+  <TradeForm
+    candidate={tradeCandidate}
+    onClose={() => (tradeCandidate = null)}
+    onSaved={load}
+  />
 {/if}
 
 <style>
@@ -137,4 +193,7 @@
   .state { padding: 30px; text-align: center; color: var(--color-t2); font-family: var(--font-mono); font-size: 11px; }
   .err { color: var(--color-acc2); }
   .tw { overflow-x: auto; }
+  .acts { display: flex; gap: 4px; flex-wrap: wrap; }
+  .proj-row td { background: rgba(126, 232, 162, 0.04); border-bottom: 1px solid var(--color-line); font-size: 10px; color: var(--color-t2); padding: 6px 10px; }
+  .proj-label { color: var(--color-acc); font-weight: 600; margin-right: 8px; }
 </style>
