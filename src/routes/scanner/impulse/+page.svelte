@@ -68,13 +68,16 @@
     return 'var(--color-acc3)';
   }
 
-  // Прогноз позиции (риск $100) — для всех активных кандидатов
   function getProjectedPosition(c: Candidate) {
     if (!c.entry || c.stop === null || c.stop === undefined || !c.direction || !c.payload?.atr) return null;
     return calculatePosition(c.entry, Number(c.stop), c.payload.atr, 100, c.direction);
   }
 
   function isActive(s: string) {
+    return s === 'WAITING_D1' || s === 'READY_ENTRY' || s === 'WAITING_OPEN';
+  }
+
+  function canOpenTrade(s: string) {
     return s === 'WAITING_D1' || s === 'READY_ENTRY' || s === 'WAITING_OPEN';
   }
 </script>
@@ -91,9 +94,13 @@
   <div class="hint">
     <div><b>D0 LONG:</b> Move +5..+12%, CLV &gt; 0.70, Body &gt; 0.50, RelVol &gt;= 1.5</div>
     <div><b>D0 SHORT:</b> Move -5..-12%, CLV &lt; 0.30, Body &gt; 0.50, RelVol &gt;= 1.5</div>
-    <div><b>D+1:</b> Inside Day OR Weak Pullback OR Compression</div>
-    <div><b>Entry D+2 (LONG):</b> High_D0 + 0.1*ATR · <b>Stop:</b> Low_D0 - 0.2*ATR</div>
-    <div><b>Entry D+2 (SHORT):</b> Low_D0 - 0.1*ATR · <b>Stop:</b> High_D0 + 0.2*ATR</div>
+    <div><b>D+1 (один из паттернов):</b><br>
+      <span style="margin-left:12px">• <b>Inside Day:</b> H1 ≤ H_D0 AND L1 ≥ L_D0</span><br>
+      <span style="margin-left:12px">• <b>Weak Pullback (LONG):</b> L1 &gt; Mid_D0 AND retracement &lt; 50% AND C1 &gt; Mid_D0 (для SHORT зеркально)</span><br>
+      <span style="margin-left:12px">• <b>Compression:</b> Range1/Range_D0 &lt; 0.5 AND |C1−C_D0| &lt; 0.3·Range_D0</span>
+    </div>
+    <div><b>Entry D+2 (LONG):</b> High_D0 + 0.1×ATR · <b>Stop:</b> Low_D0 − 0.2×ATR</div>
+    <div><b>Entry D+2 (SHORT):</b> Low_D0 − 0.1×ATR · <b>Stop:</b> High_D0 + 0.2×ATR</div>
   </div>
 
   {#if loading}
@@ -142,7 +149,7 @@
                 {#if c.status === 'WAITING_D1'}
                   <button onclick={() => (d1Candidate = c)} style="font-size:9px;padding:4px 8px">+ D+1</button>
                 {/if}
-                {#if c.status === 'READY_ENTRY'}
+                {#if canOpenTrade(c.status)}
                   <button class="btn-p" onclick={() => (tradeCandidate = c)} style="font-size:9px;padding:4px 8px">+ Сделка</button>
                 {/if}
                 <button class="btn-r" onclick={() => handleDelete(c.id)} style="font-size:9px;padding:4px 8px">×</button>
