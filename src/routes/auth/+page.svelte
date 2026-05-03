@@ -22,6 +22,9 @@
   }
 </script>
 
+<svelte:head>
+  <title>Вход · Trading Journal</title>
+</svelte:head>
 <div class="wrap">
   <div class="box">
     <div class="head">

@@ -70,6 +70,9 @@
   }
 </script>
 
+<svelte:head>
+  <title>Сделки · Trading Journal</title>
+</svelte:head>
 <div class="page">
   <div class="head">
     <h1>Сделки</h1>

@@ -82,6 +82,9 @@
   }
 </script>
 
+<svelte:head>
+  <title>Impulse Scanner · Trading Journal</title>
+</svelte:head>
 <div class="page">
   <div class="head">
     <div>

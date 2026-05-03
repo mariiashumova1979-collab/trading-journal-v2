@@ -6,6 +6,9 @@
   }
 </script>
 
+<svelte:head>
+  <title>Trading Journal</title>
+</svelte:head>
 <div class="page">
   <h1>Trading Journal</h1>
   <p class="sub">Выбери стратегию для работы</p>

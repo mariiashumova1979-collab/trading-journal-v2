@@ -140,6 +140,9 @@
   }
 </script>
 
+<svelte:head>
+  <title>Календарь · Trading Journal</title>
+</svelte:head>
 <div class="page">
   <div class="head">
     <h1>Календарь сделок</h1>
