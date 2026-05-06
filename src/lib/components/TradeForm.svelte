@@ -72,7 +72,11 @@
         target2: preview.target2,
         status: 'OPEN',
         commission: parseNum(commission) || 0,
-        notes: 'D0: ' + candidate.signal_date + ' | Pattern: ' + (candidate.payload?.pattern || 'N/A') + ' | ATR: ' + (candidate.payload?.atr?.toFixed(2) || 'N/A'),
+        notes: (() => {
+          const baseNote = 'D0: ' + candidate.signal_date + ' | Pattern: ' + (candidate.payload?.pattern || 'N/A') + ' | ATR: ' + (candidate.payload?.atr?.toFixed(2) || 'N/A');
+          const d1Note = (candidate.payload as any)?.d1_note;
+          return d1Note ? baseNote + '\n' + d1Note : baseNote;
+        })(),
         atr_pct: candidate.payload?.atr ? (candidate.payload.atr / preview.entry * 100) : null,
         atr_abs: candidate.payload?.atr || null,
         impulse_anchor: candidate.direction === 'LONG' ? candidate.payload?.d0?.L ?? null : candidate.payload?.d0?.H ?? null,
