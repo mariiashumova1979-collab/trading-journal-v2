@@ -16,7 +16,7 @@
     signal?: 'SHORT' | 'LONG' | null;
   }
 
-  const BATCH_SIZE = 20;
+  const BATCH_SIZE = 50;
 
   let allResults = $state<TickerResult[]>([]);
   let ranked = $state<TickerResult[]>([]);
