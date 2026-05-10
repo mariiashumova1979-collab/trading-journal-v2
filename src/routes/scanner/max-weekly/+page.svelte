@@ -1,28 +1,14 @@
 <script lang="ts">
-  // ─── Весь скан выполняется в браузере ───
-  // Yahoo Finance не блокирует запросы с реальных IP браузеров.
-  // CORS прокси позволяет обойти ограничение браузера на cross-origin запросы.
-
-  const CORS = 'https://corsproxy.io/?';
-
   interface TickerResult {
-    ticker: string;
-    close: number;
-    max5d: number;
-    min5d: number;
-    return5d: number;
-    volSpike5d: number;
-    adv20: number;
-    atr14: number;
-    fiftyTwoWeekHigh: number;
-    fiftyTwoWeekLow: number;
-    maxPct?: number;
-    minPct?: number;
-    returnPct?: number;
+    ticker: string; close: number;
+    max5d: number; min5d: number; return5d: number;
+    volSpike5d: number; adv20: number; atr14: number;
+    fiftyTwoWeekHigh: number; fiftyTwoWeekLow: number;
+    maxPct?: number; minPct?: number; returnPct?: number;
     signal?: 'SHORT' | 'LONG' | null;
   }
 
-  const BATCH = 50; // spark принимает до 50 за раз
+  const BATCH_SIZE = 20;
 
   let allResults = $state<TickerResult[]>([]);
   let ranked = $state<TickerResult[]>([]);
@@ -30,6 +16,8 @@
   let aborted = $state(false);
   let progress = $state(0);
   let total = $state(0);
+  let totalBatches = $state(0);
+  let currentBatch = $state(0);
   let errors = $state(0);
   let done = $state(false);
   let capital = $state('50000');
@@ -40,105 +28,8 @@
   let filterSignal = $state<'ALL' | 'SHORT' | 'LONG'>('ALL');
   let showTopOnly = $state(false);
 
-  // ─── ATR14 ───
-  function atr14(highs: number[], lows: number[], closes: number[]): number {
-    const n = closes.length;
-    if (n < 2) return 0;
-    const trs: number[] = [];
-    for (let i = 1; i < n; i++) {
-      trs.push(Math.max(
-        highs[i] - lows[i],
-        Math.abs(highs[i] - closes[i - 1]),
-        Math.abs(lows[i] - closes[i - 1])
-      ));
-    }
-    const p = Math.min(14, trs.length);
-    return trs.slice(-p).reduce((a, b) => a + b, 0) / p;
-  }
-
-  // ─── Fetch одного батча через spark ───
-  async function fetchSparkBatch(symbols: string[]): Promise<TickerResult[]> {
-    const yhUrl = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${symbols.join('%2C')}&range=2mo&interval=1d`;
-    const proxyUrl = CORS + encodeURIComponent(yhUrl);
-
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    const sparkItems = data?.spark?.result ?? [];
-    const results: TickerResult[] = [];
-
-    for (const item of sparkItems) {
-      try {
-        const symbol: string = item?.symbol;
-        const resp = item?.response?.[0];
-        if (!symbol || !resp) continue;
-
-        const quotes = resp.indicators?.quote?.[0] ?? {};
-        const rawOpens: (number | null)[] = quotes.open ?? [];
-        const rawHighs: (number | null)[] = quotes.high ?? [];
-        const rawLows: (number | null)[] = quotes.low ?? [];
-        const rawCloses: (number | null)[] = quotes.close ?? [];
-        const rawVols: (number | null)[] = quotes.volume ?? [];
-
-        // Только полные строки
-        const idx = rawCloses.map((_, i) => i).filter(i =>
-          rawCloses[i] != null && rawHighs[i] != null &&
-          rawLows[i] != null && rawVols[i] != null
-        );
-        if (idx.length < 8) continue;
-
-        const C = idx.map(i => rawCloses[i] as number);
-        const H = idx.map(i => rawHighs[i] as number);
-        const L = idx.map(i => rawLows[i] as number);
-        const V = idx.map(i => rawVols[i] as number);
-        const n = C.length;
-
-        // MAX_5d, MIN_5d
-        const ret5: number[] = [];
-        for (let i = Math.max(1, n - 5); i < n; i++) {
-          if (C[i - 1] > 0) ret5.push((C[i] - C[i - 1]) / C[i - 1]);
-        }
-        const max5d = ret5.length > 0 ? Math.max(...ret5) : 0;
-        const min5d = ret5.length > 0 ? Math.min(...ret5) : 0;
-
-        // Return_5d
-        const closeT0 = C[n - 1];
-        const closeT5 = C[Math.max(0, n - 6)];
-        const return5d = closeT5 > 0 ? (closeT0 - closeT5) / closeT5 : 0;
-
-        // VolSpike
-        const avgVol5 = V.slice(-5).reduce((a, b) => a + b, 0) / 5;
-        const prev20 = V.slice(-25, -5);
-        const avgVol20 = prev20.length > 0 ? prev20.reduce((a, b) => a + b, 0) / prev20.length : avgVol5;
-        const volSpike5d = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
-
-        // ADV20
-        const adv20 = (() => {
-          const slice = C.slice(-21, -1);
-          const vslice = V.slice(-21, -1);
-          if (!slice.length) return 0;
-          return slice.reduce((s, c, i) => s + c * vslice[i], 0) / slice.length;
-        })();
-
-        results.push({
-          ticker: symbol,
-          close: closeT0,
-          max5d, min5d, return5d, volSpike5d, adv20,
-          atr14: atr14(H.slice(-16), L.slice(-16), C.slice(-16)),
-          fiftyTwoWeekHigh: Math.max(...H),
-          fiftyTwoWeekLow: Math.min(...L)
-        });
-      } catch { /* skip bad ticker */ }
-    }
-    return results;
-  }
-
-  // ─── Percentile rank ───
   function pctRank(arr: number[], v: number): number {
-    const n = arr.length;
-    if (n === 0) return 50;
-    return arr.filter(x => x < v).length / n * 100;
+    return arr.length === 0 ? 50 : arr.filter(x => x < v).length / arr.length * 100;
   }
 
   function computeRankings(data: TickerResult[]): TickerResult[] {
@@ -146,7 +37,6 @@
     const max5ds = data.map(r => r.max5d);
     const min5ds = data.map(r => r.min5d);
     const ret5ds = data.map(r => r.return5d);
-    const cap = parseFloat(capital) || 50000;
 
     return data.map(r => {
       const maxPct = pctRank(max5ds, r.max5d);
@@ -159,7 +49,8 @@
       const isLong = minPct <= 10 && returnPct <= 20 && r.volSpike5d >= 1.5 &&
         r.close > r.fiftyTwoWeekLow * 1.02 && adv20M >= 10 && r.close >= 10;
 
-      return { ...r, maxPct, minPct, returnPct, signal: isShort ? 'SHORT' : isLong ? 'LONG' : null };
+      return { ...r, maxPct, minPct, returnPct,
+        signal: isShort ? 'SHORT' : isLong ? 'LONG' : null };
     });
   }
 
@@ -168,68 +59,48 @@
     if (allResults.length > 0) ranked = computeRankings(allResults);
   });
 
-  // ─── Загружаем universe из static ───
-  async function loadUniverse(): Promise<string[]> {
-    const res = await fetch('/universe.json');
-    return res.json();
-  }
-
-  // ─── Главный цикл скана ───
   async function runScan() {
     scanning = true; aborted = false; done = false;
     allResults = []; ranked = []; progress = 0; errors = 0; scanLog = [];
 
-    let universe: string[];
-    try {
-      universe = await loadUniverse();
-      total = universe.length;
-    } catch (e: any) {
-      scanLog = ['Ошибка загрузки universe.json: ' + e.message];
-      scanning = false; return;
-    }
+    let batch = 0;
+    while (!aborted) {
+      try {
+        const url = `/api/max-weekly?batch=${batch}&batchSize=${BATCH_SIZE}`;
+        scanLog = [`Батч ${batch + 1}: запрос к Stooq...`, ...scanLog.slice(0, 6)];
 
-    const totalBatches = Math.ceil(universe.length / BATCH);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-    for (let b = 0; b < totalBatches && !aborted; b++) {
-      const slice = universe.slice(b * BATCH, (b + 1) * BATCH);
-      scanLog = [`Батч ${b + 1}/${totalBatches}: загрузка ${slice.length} тикеров...`, ...scanLog.slice(0, 5)];
+        total = data.total_tickers;
+        totalBatches = data.total_batches;
+        currentBatch = batch + 1;
+        progress = data.scanned;
+        errors += data.errors ?? 0;
 
-      let attempts = 0;
-      let batchResults: TickerResult[] = [];
+        scanLog = [
+          `Батч ${batch + 1}/${data.total_batches}: +${data.results?.length ?? 0} тикеров, ${data.errors ?? 0} ошибок`,
+          ...scanLog.slice(0, 6)
+        ];
 
-      while (attempts < 3 && !aborted) {
-        try {
-          batchResults = await fetchSparkBatch(slice);
-          break;
-        } catch (e: any) {
-          attempts++;
-          if (attempts < 3) {
-            scanLog = [`Батч ${b + 1}: retry ${attempts}/3 (${e.message})`, ...scanLog.slice(0, 5)];
-            await new Promise(r => setTimeout(r, 1500 * attempts));
-          }
+        if (data.results?.length > 0) {
+          allResults = [...allResults, ...data.results];
+          ranked = computeRankings(allResults);
         }
-      }
 
-      const batchErrors = slice.length - batchResults.length;
-      errors += batchErrors;
-      progress += slice.length;
+        if (data.done || aborted) { done = true; break; }
+        batch++;
 
-      if (batchResults.length > 0) {
-        allResults = [...allResults, ...batchResults];
-        ranked = computeRankings(allResults);
-      }
-
-      scanLog = [
-        `Батч ${b + 1}/${totalBatches}: +${batchResults.length} тикеров, ${batchErrors} ошибок`,
-        ...scanLog.slice(0, 5)
-      ];
-
-      // Небольшая пауза между батчами — не нагружаем прокси
-      if (!aborted && b < totalBatches - 1) {
-        await new Promise(r => setTimeout(r, 300));
+        // 200ms пауза чтобы не нагружать Stooq
+        await new Promise(r => setTimeout(r, 200));
+      } catch (e: any) {
+        scanLog = [`Батч ${batch + 1}: ОШИБКА — ${e.message}`, ...scanLog.slice(0, 6)];
+        errors += BATCH_SIZE;
+        batch++;
+        if (batch > (totalBatches || 60)) { done = true; break; }
       }
     }
-
     scanning = false; done = true;
   }
 
@@ -268,7 +139,7 @@
       Math.floor((cap * 0.008) / sd),
       Math.floor((cap * 0.10) / r.close)
     ) : 0;
-    return { shares, stopPrice: r.signal === 'SHORT' ? r.close + sd : r.close - sd, risk: shares * sd };
+    return { shares, stop: r.signal === 'SHORT' ? r.close + sd : r.close - sd, risk: shares * sd };
   }
 
   const fmtPct = (v: number) => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
@@ -283,7 +154,7 @@
   <div class="head">
     <div>
       <h1>MAX Weekly Reversal</h1>
-      <p class="sub">Еженедельный скан Russell 1000 · Запускать пятница после 23:00 EET</p>
+      <p class="sub">Russell 1000 · Stooq data · Запускать пятница после 23:00 EET</p>
     </div>
     <div class="head-right">
       <div class="fg">
@@ -312,10 +183,10 @@
       <div>Close &gt; 52wkL × 1.02</div>
     </div>
     <div class="rule-col">
-      <div class="rule-h" style="color:var(--color-acc4)">Вход / Стоп</div>
-      <div>Entry: Open понедельника (рыночный ордер)</div>
-      <div>Stop: ±2×ATR14 (max 10%) · Размер: 0.8% капитала</div>
-      <div>T1 (60%): ∓1×ATR · T2 (40%): ∓2×ATR · Time: пятница</div>
+      <div class="rule-h" style="color:var(--color-acc4)">Вход / Стоп / Выход</div>
+      <div>Entry: Open понедельника · Stop: ±2×ATR14 (max 10%)</div>
+      <div>Размер: 0.8% капитала / стоп (max 10% капитала)</div>
+      <div>T1 (60%): ∓1×ATR · T2 (40%): ∓2×ATR · Time: пятница D+5</div>
     </div>
   </div>
 
@@ -323,11 +194,11 @@
     <div class="scan-status">
       <div class="scan-top">
         {#if scanning}
-          <span class="si">Загружено: <b>{allResults.length}</b> / {total} · SHORT: <b>{topShort.length}</b> · LONG: <b>{topLong.length}</b></span>
+          <span class="si">Батч {currentBatch}/{totalBatches} · Загружено: <b>{allResults.length}</b> · SHORT: <b>{topShort.length}</b> · LONG: <b>{topLong.length}</b></span>
         {:else if done}
           <span class="si">✓ Скан завершён · <b>{allResults.length}</b> тикеров · SHORT: <b>{topShort.length}</b> · LONG: <b>{topLong.length}</b></span>
         {/if}
-        {#if errors > 0}<span class="err-b">{errors} ошибок</span>{/if}
+        {#if errors > 0}<span class="err-b">{errors} ошибок (тикер недоступен на Stooq)</span>{/if}
       </div>
       {#if scanning}
         <div class="ptrack"><div class="pfill" style="width:{total > 0 ? (progress/total*100) : 0}%"></div></div>
@@ -345,11 +216,12 @@
           <div class="scard short">
             <div class="sticker">{r.ticker}</div>
             <div class="smeta">Close <b>${r.close.toFixed(2)}</b> · MAX_5d <b>{fmtPct(r.max5d)}</b> · MAX_pct <b>{r.maxPct?.toFixed(0)}</b> · Vol×<b>{r.volSpike5d.toFixed(1)}</b></div>
-            <div class="smeta">Stop <b>${p.stopPrice.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
+            <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
             <div class="smeta">T1 <b>${(r.close - r.atr14).toFixed(2)}</b> · T2 <b>${(r.close - 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Проверить шорт в Freedom24 · □ Earnings ±5 дней · □ Отмена Open ≥ ${(r.close*1.04).toFixed(2)}</div>
           </div>
         {/each}
+        {#if topShort.length === 0 && done}<div class="no-sig">Нет сигналов SHORT</div>{/if}
       </div>
       <div>
         <div class="top-h" style="color:var(--color-acc)">⬆ TOP-3 LONG</div>
@@ -358,11 +230,12 @@
           <div class="scard long">
             <div class="sticker">{r.ticker}</div>
             <div class="smeta">Close <b>${r.close.toFixed(2)}</b> · MIN_5d <b>{fmtPct(r.min5d)}</b> · MIN_pct <b>{r.minPct?.toFixed(0)}</b> · Vol×<b>{r.volSpike5d.toFixed(1)}</b></div>
-            <div class="smeta">Stop <b>${p.stopPrice.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
+            <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
             <div class="smeta">T1 <b>${(r.close + r.atr14).toFixed(2)}</b> · T2 <b>${(r.close + 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Earnings ±5 дней · □ Отмена Open ≤ ${(r.close*0.96).toFixed(2)}</div>
           </div>
         {/each}
+        {#if topLong.length === 0 && done}<div class="no-sig">Нет сигналов LONG</div>{/if}
       </div>
     </div>
   {/if}
@@ -416,12 +289,9 @@
       </table>
     </div>
   {:else if done && allResults.length === 0}
-    <div class="state err">
-      Нет данных. CORS прокси (corsproxy.io) может быть недоступен.<br>
-      Попробуй ещё раз через минуту или проверь консоль браузера (F12).
-    </div>
+    <div class="state err">Нет данных. Возможно Stooq временно недоступен. Попробуй через минуту.</div>
   {:else if !scanning && !done}
-    <div class="state">Нажми «Запустить скан» для загрузки данных</div>
+    <div class="state">Нажми «Запустить скан» · Источник данных: Stooq · ~3-5 минут на 1002 тикера</div>
   {/if}
 </div>
 
@@ -436,12 +306,12 @@
   .rule-col { padding: 10px 12px; background: var(--color-bg2); border: 1px solid var(--color-line); border-radius: 8px; }
   .rule-h { font-weight: 700; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
   .scan-status { padding: 10px 14px; background: var(--color-bg2); border: 1px solid var(--color-line); border-radius: 8px; margin-bottom: 14px; }
-  .scan-top { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .scan-top { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
   .si { font-family: var(--font-mono); font-size: 11px; color: var(--color-t2); }
   .si b { color: var(--color-text); }
-  .err-b { font-family: var(--font-mono); font-size: 9px; background: rgba(255,107,138,0.2); color: var(--color-acc2); padding: 2px 6px; border-radius: 4px; }
+  .err-b { font-family: var(--font-mono); font-size: 9px; background: rgba(255,107,138,0.15); color: var(--color-acc2); padding: 2px 8px; border-radius: 4px; }
   .ptrack { height: 4px; background: var(--color-bg3); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
-  .pfill { height: 100%; background: var(--color-acc); transition: width 0.3s; border-radius: 2px; }
+  .pfill { height: 100%; background: var(--color-acc); transition: width 0.4s; border-radius: 2px; }
   .slog { font-family: var(--font-mono); font-size: 9px; color: var(--color-t3); line-height: 1.6; }
   .top-signals { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
   @media (max-width: 800px) { .top-signals { grid-template-columns: 1fr; } }
@@ -455,6 +325,7 @@
   .smeta { color: var(--color-t2); }
   .smeta b { color: var(--color-text); }
   .scl { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-line); color: var(--color-t3); font-size: 9px; }
+  .no-sig { font-family: var(--font-mono); font-size: 10px; color: var(--color-t3); padding: 20px; text-align: center; border: 1px dashed var(--color-line); border-radius: 8px; }
   .tbl-ctrl { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px; flex-wrap: wrap; }
   .tbl-f { display: flex; gap: 10px; align-items: center; }
   .chk { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-t2); cursor: pointer; }

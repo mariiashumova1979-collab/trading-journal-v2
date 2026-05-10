@@ -1,240 +1,145 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-// ─── Yahoo Finance direct HTTP (без sdk) ───
-// Используем spark endpoint — принимает до 50 тикеров за один запрос
+// ─── Stooq CSV fetcher ───
+// Stooq работает с серверов без API ключей и без блокировок
 
-const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Origin': 'https://finance.yahoo.com',
-  'Referer': 'https://finance.yahoo.com/',
-};
-
-// Получаем cookie + crumb один раз
-let _cookie = '';
-let _crumb = '';
-
-async function getYahooCreds(): Promise<{ cookie: string; crumb: string }> {
-  if (_cookie && _crumb) return { cookie: _cookie, crumb: _crumb };
-
-  try {
-    // Step 1: get cookie
-    const r1 = await fetch('https://fc.yahoo.com', {
-      headers: YF_HEADERS,
-      redirect: 'follow'
-    });
-    const setCookie = r1.headers.get('set-cookie') ?? '';
-    _cookie = setCookie.split(';')[0];
-
-    // Step 2: get crumb
-    const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { ...YF_HEADERS, 'Cookie': _cookie }
-    });
-    if (r2.ok) {
-      _crumb = await r2.text();
-    }
-  } catch {
-    // ignore — работаем без crumb, spark часто не требует
-  }
-
-  return { cookie: _cookie, crumb: _crumb };
+function fmtDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
 }
 
-// ─── ATR14 ───
-function calcATR14(highs: number[], lows: number[], closes: number[]): number {
-  const n = closes.length;
+interface Bar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+async function fetchStooq(ticker: string): Promise<Bar[]> {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 60); // 60 дней с запасом
+
+  // Stooq: тикер в нижнем регистре + .us
+  // BRK-B → brkb.us, BF-B → bfb.us
+  const sym = ticker.toLowerCase().replace(/[-\.]/g, '') + '.us';
+  const url = `https://stooq.com/q/d/l/?s=${sym}&i=d&d1=${fmtDate(start)}&d2=${fmtDate(end)}`;
+
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'text/csv,text/plain,*/*',
+      'Referer': 'https://stooq.com/'
+    },
+    signal: AbortSignal.timeout(6000)
+  });
+
+  if (!res.ok) return [];
+  const csv = await res.text();
+  if (!csv || csv.startsWith('<!') || csv.includes('No data')) return [];
+
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  const bars: Bar[] = [];
+  for (const line of lines.slice(1)) {
+    const parts = line.split(',');
+    if (parts.length < 5) continue;
+    const [date, open, high, low, close, volume] = parts;
+    const o = parseFloat(open);
+    const h = parseFloat(high);
+    const l = parseFloat(low);
+    const c = parseFloat(close);
+    const v = parseFloat(volume ?? '0');
+    if (isNaN(c) || isNaN(h) || isNaN(l) || c === 0) continue;
+    bars.push({ date: date.trim(), open: o, high: h, low: l, close: c, volume: v || 0 });
+  }
+
+  // Stooq возвращает в обратном порядке (новые сначала) — разворачиваем
+  return bars.reverse();
+}
+
+// ─── Metrics ───
+function calcATR14(bars: Bar[]): number {
+  const n = bars.length;
   if (n < 2) return 0;
   const trs: number[] = [];
   for (let i = 1; i < n; i++) {
-    const tr = Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i] - closes[i - 1])
-    );
-    trs.push(tr);
+    trs.push(Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close)
+    ));
   }
-  const period = Math.min(14, trs.length);
-  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const p = Math.min(14, trs.length);
+  return trs.slice(-p).reduce((a, b) => a + b, 0) / p;
 }
 
-// ─── Fetch batch of up to 50 tickers via spark ───
-async function fetchBatch(symbols: string[], cookie: string, crumb: string): Promise<Map<string, {
-  ticker: string;
-  close: number;
-  max5d: number;
-  min5d: number;
-  return5d: number;
-  volSpike5d: number;
-  adv20: number;
-  atr14: number;
-  fiftyTwoWeekHigh: number;
-  fiftyTwoWeekLow: number;
-}>> {
-  const result = new Map();
+function calcMetrics(ticker: string, bars: Bar[]) {
+  const n = bars.length;
+  if (n < 8) return null;
 
-  // Пробуем spark endpoint (bulk, быстро)
-  try {
-    const sparkUrl = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${symbols.join('%2C')}&range=2mo&interval=1d${crumb ? '&crumb=' + crumb : ''}`;
-    const res = await fetch(sparkUrl, {
-      headers: { ...YF_HEADERS, ...(cookie ? { 'Cookie': cookie } : {}) },
-      signal: AbortSignal.timeout(8000)
-    });
+  const closes = bars.map(b => b.close);
+  const highs = bars.map(b => b.high);
+  const lows = bars.map(b => b.low);
+  const volumes = bars.map(b => b.volume);
 
-    if (res.ok) {
-      const data = await res.json();
-      const sparkResult = data?.spark?.result ?? [];
-
-      for (const item of sparkResult) {
-        const symbol = item?.symbol;
-        const resp = item?.response?.[0];
-        if (!symbol || !resp) continue;
-
-        const timestamps: number[] = resp.timestamp ?? [];
-        const quotes = resp.indicators?.quote?.[0] ?? {};
-        const opens: number[] = quotes.open ?? [];
-        const highs: number[] = quotes.high ?? [];
-        const lows: number[] = quotes.low ?? [];
-        const closes: number[] = quotes.close ?? [];
-        const volumes: number[] = quotes.volume ?? [];
-
-        // Фильтруем null значения
-        const valid = timestamps.map((_, i) => i).filter(i =>
-          closes[i] != null && opens[i] != null && highs[i] != null && lows[i] != null && volumes[i] != null
-        );
-
-        if (valid.length < 8) continue;
-
-        const vCloses = valid.map(i => closes[i]);
-        const vHighs = valid.map(i => highs[i]);
-        const vLows = valid.map(i => lows[i]);
-        const vVolumes = valid.map(i => volumes[i]);
-        const n = vCloses.length;
-
-        // MAX_5d, MIN_5d — за последние 5 дней
-        const dailyRet: number[] = [];
-        for (let i = Math.max(1, n - 5); i < n; i++) {
-          if (vCloses[i - 1] > 0) dailyRet.push((vCloses[i] - vCloses[i - 1]) / vCloses[i - 1]);
-        }
-        const max5d = dailyRet.length > 0 ? Math.max(...dailyRet) : 0;
-        const min5d = dailyRet.length > 0 ? Math.min(...dailyRet) : 0;
-
-        // Return_5d
-        const closeT0 = vCloses[n - 1];
-        const closeT5 = vCloses[Math.max(0, n - 6)];
-        const return5d = closeT5 > 0 ? (closeT0 - closeT5) / closeT5 : 0;
-
-        // VolSpike_5d
-        const vol5 = vVolumes.slice(-5);
-        const vol20 = vVolumes.slice(-25, -5);
-        const avgVol5 = vol5.reduce((a, b) => a + b, 0) / vol5.length;
-        const avgVol20 = vol20.length > 0 ? vol20.reduce((a, b) => a + b, 0) / vol20.length : avgVol5;
-        const volSpike5d = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
-
-        // ADV20
-        const last20 = vCloses.slice(-21, -1).map((c, i2) => c * vVolumes.slice(-21, -1)[i2]);
-        const adv20 = last20.length > 0 ? last20.reduce((a, b) => a + b, 0) / last20.length : 0;
-
-        // ATR14
-        const atr14 = calcATR14(vHighs.slice(-16), vLows.slice(-16), vCloses.slice(-16));
-
-        // 52wk high/low — из всех доступных данных
-        const fiftyTwoWeekHigh = Math.max(...vHighs);
-        const fiftyTwoWeekLow = Math.min(...vLows);
-
-        result.set(symbol, {
-          ticker: symbol,
-          close: closeT0,
-          max5d,
-          min5d,
-          return5d,
-          volSpike5d,
-          adv20,
-          atr14,
-          fiftyTwoWeekHigh,
-          fiftyTwoWeekLow
-        });
-      }
-      return result;
-    }
-  } catch (e) {
-    // spark failed — fallthrough to chart
+  // MAX_5d, MIN_5d — максимальный и минимальный однодневный return за 5 дней
+  const ret5: number[] = [];
+  for (let i = Math.max(1, n - 5); i < n; i++) {
+    if (closes[i - 1] > 0) ret5.push((closes[i] - closes[i - 1]) / closes[i - 1]);
   }
+  const max5d = ret5.length > 0 ? Math.max(...ret5) : 0;
+  const min5d = ret5.length > 0 ? Math.min(...ret5) : 0;
 
-  // Fallback: chart endpoint поштучно (если spark не сработал)
-  await Promise.all(
-    symbols.slice(0, 10).map(async (symbol) => {
-      try {
-        const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2mo${crumb ? '&crumb=' + crumb : ''}`;
-        const res = await fetch(url, {
-          headers: { ...YF_HEADERS, ...(cookie ? { 'Cookie': cookie } : {}) },
-          signal: AbortSignal.timeout(5000)
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const r = data?.chart?.result?.[0];
-        if (!r) return;
+  // Return_5d
+  const closeT0 = closes[n - 1];
+  const closeT5 = closes[Math.max(0, n - 6)];
+  const return5d = closeT5 > 0 ? (closeT0 - closeT5) / closeT5 : 0;
 
-        const meta = r.meta ?? {};
-        const timestamps: number[] = r.timestamp ?? [];
-        const q = r.indicators?.quote?.[0] ?? {};
-        const closes: number[] = q.close ?? [];
-        const highs: number[] = q.high ?? [];
-        const lows: number[] = q.low ?? [];
-        const volumes: number[] = q.volume ?? [];
+  // VolSpike_5d
+  const vol5 = volumes.slice(-5);
+  const vol20 = volumes.slice(-25, -5);
+  const avgVol5 = vol5.reduce((a, b) => a + b, 0) / Math.max(vol5.length, 1);
+  const avgVol20 = vol20.length > 0 ? vol20.reduce((a, b) => a + b, 0) / vol20.length : avgVol5;
+  const volSpike5d = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
 
-        const valid = timestamps.map((_, i) => i).filter(i =>
-          closes[i] != null && highs[i] != null && lows[i] != null
-        );
-        if (valid.length < 8) return;
+  // ADV20 — средний дневной оборот в $
+  const last20closes = closes.slice(-21, -1);
+  const last20vols = volumes.slice(-21, -1);
+  const adv20 = last20closes.length > 0
+    ? last20closes.reduce((s, c, i) => s + c * (last20vols[i] || 0), 0) / last20closes.length
+    : 0;
 
-        const vC = valid.map(i => closes[i]);
-        const vH = valid.map(i => highs[i]);
-        const vL = valid.map(i => lows[i]);
-        const vV = valid.map(i => volumes[i] ?? 0);
-        const n = vC.length;
+  // ATR14
+  const atr14 = calcATR14(bars.slice(-16));
 
-        const dailyRet: number[] = [];
-        for (let i = Math.max(1, n - 5); i < n; i++) {
-          if (vC[i - 1] > 0) dailyRet.push((vC[i] - vC[i - 1]) / vC[i - 1]);
-        }
-        const max5d = dailyRet.length > 0 ? Math.max(...dailyRet) : 0;
-        const min5d = dailyRet.length > 0 ? Math.min(...dailyRet) : 0;
-        const closeT0 = vC[n - 1];
-        const closeT5 = vC[Math.max(0, n - 6)];
-        const return5d = closeT5 > 0 ? (closeT0 - closeT5) / closeT5 : 0;
-        const vol5 = vV.slice(-5);
-        const vol20 = vV.slice(-25, -5);
-        const avgVol5 = vol5.reduce((a, b) => a + b, 0) / vol5.length;
-        const avgVol20 = vol20.length > 0 ? vol20.reduce((a, b) => a + b, 0) / vol20.length : avgVol5;
-        const volSpike5d = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
-        const last20vals = vC.slice(-21, -1).map((c, i2) => c * vV.slice(-21, -1)[i2]);
-        const adv20 = last20vals.length > 0 ? last20vals.reduce((a, b) => a + b, 0) / last20vals.length : 0;
-        const atr14 = calcATR14(vH.slice(-16), vL.slice(-16), vC.slice(-16));
+  // 52-week approx из доступных данных
+  const fiftyTwoWeekHigh = Math.max(...highs);
+  const fiftyTwoWeekLow = Math.min(...lows);
 
-        result.set(symbol, {
-          ticker: symbol,
-          close: closeT0,
-          max5d, min5d, return5d, volSpike5d, adv20, atr14,
-          fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? Math.max(...vH),
-          fiftyTwoWeekLow: meta.fiftyTwoWeekLow ?? Math.min(...vL)
-        });
-      } catch { /* skip */ }
-    })
-  );
-
-  return result;
+  return {
+    ticker,
+    close: closeT0,
+    max5d, min5d, return5d, volSpike5d, adv20, atr14,
+    fiftyTwoWeekHigh, fiftyTwoWeekLow
+  };
 }
 
+// ─── Handler ───
 export const GET: RequestHandler = async ({ url }) => {
   const batch = parseInt(url.searchParams.get('batch') ?? '0');
-  const batchSize = Math.min(parseInt(url.searchParams.get('batchSize') ?? '50'), 50);
+  const batchSize = Math.min(parseInt(url.searchParams.get('batchSize') ?? '20'), 25);
 
   let universe: string[];
   try {
     const res = await fetch(url.origin + '/universe.json');
-    if (!res.ok) throw new Error('fetch failed');
+    if (!res.ok) throw new Error('status ' + res.status);
     universe = await res.json();
   } catch (e) {
     throw error(500, 'universe.json: ' + String(e));
@@ -242,31 +147,36 @@ export const GET: RequestHandler = async ({ url }) => {
 
   const start = batch * batchSize;
   const end = Math.min(start + batchSize, universe.length);
-  const batchTickers = universe.slice(start, end);
+  const tickers = universe.slice(start, end);
 
-  if (batchTickers.length === 0) {
+  if (tickers.length === 0) {
     return json({
-      batch,
-      total_batches: Math.ceil(universe.length / batchSize),
-      total_tickers: universe.length,
-      scanned: universe.length,
-      results: [],
-      errors: 0,
-      done: true
+      batch, total_batches: Math.ceil(universe.length / batchSize),
+      total_tickers: universe.length, scanned: universe.length,
+      results: [], errors: 0, done: true
     });
   }
 
-  const { cookie, crumb } = await getYahooCreds();
+  // Параллельно по 6 — Stooq не слишком агрессивен с rate limit
+  const CONCURRENCY = 6;
+  const results: any[] = [];
+  let errCount = 0;
 
-  let resultMap: Map<string, any>;
-  try {
-    resultMap = await fetchBatch(batchTickers, cookie, crumb);
-  } catch {
-    resultMap = new Map();
+  for (let i = 0; i < tickers.length; i += CONCURRENCY) {
+    const chunk = tickers.slice(i, i + CONCURRENCY);
+    const chunkRes = await Promise.all(chunk.map(async (t) => {
+      try {
+        const bars = await fetchStooq(t);
+        return calcMetrics(t, bars);
+      } catch {
+        return null;
+      }
+    }));
+    for (const r of chunkRes) {
+      if (r) results.push(r);
+      else errCount++;
+    }
   }
-
-  const results = Array.from(resultMap.values());
-  const errors = batchTickers.length - results.length;
 
   return json({
     batch,
@@ -274,7 +184,7 @@ export const GET: RequestHandler = async ({ url }) => {
     total_tickers: universe.length,
     scanned: end,
     results,
-    errors,
+    errors: errCount,
     done: end >= universe.length
   });
 };
