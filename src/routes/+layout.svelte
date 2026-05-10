@@ -58,6 +58,7 @@
       </nav>
       <div class="user-area">
         <a href="/trades" class="link" class:active={$page.url.pathname === '/trades'}>Сделки</a>
+        <a href="/scanner/max-weekly" class="link" class:active={$page.url.pathname.startsWith('/scanner/max-weekly')}>📊 MAX Weekly</a>
         <a href="/calendar" class="link" class:active={$page.url.pathname === '/calendar'}>📅 Календарь</a>
         <span class="user-email">{$user.email}</span>
         <button onclick={handleSignOut} class="signout-btn">Выйти</button>
