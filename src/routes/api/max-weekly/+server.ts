@@ -91,8 +91,47 @@ export const GET: RequestHandler = async ({ url }) => {
   // Диагностический режим: ?test=AAPL
   const testTicker = url.searchParams.get('test');
   if (testTicker) {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 60);
+    const fmtDate = (d: Date) => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+    const sym = testTicker.toUpperCase().replace(/[-\.]/g, '') + '.US';
+    const stooqUrl = `https://stooq.com/q/d/l/?s=${sym}&i=d&d1=${fmtDate(start)}&d2=${fmtDate(end)}`;
+    
+    let status = 0, contentType = '', rawSample = '', headers: any = {};
+    try {
+      const res = await fetch(stooqUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://stooq.com/q/?s=' + sym,
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(8000)
+      });
+      status = res.status;
+      contentType = res.headers.get('content-type') || '';
+      const text = await res.text();
+      rawSample = text.substring(0, 300);
+      res.headers.forEach((v, k) => { headers[k] = v; });
+    } catch (e: any) {
+      rawSample = 'EXCEPTION: ' + (e.message || String(e));
+    }
+    
     const { bars, debug } = await fetchStooq(testTicker);
-    return json({ ticker: testTicker, bars_count: bars.length, first_bar: bars[0], last_bar: bars[bars.length-1], debug });
+    return json({ 
+      ticker: testTicker, 
+      stooq_url: stooqUrl,
+      http_status: status,
+      content_type: contentType,
+      response_headers: headers,
+      raw_first_300_chars: rawSample,
+      bars_count: bars.length, 
+      first_bar: bars[0], 
+      last_bar: bars[bars.length-1], 
+      debug 
+    });
   }
 
   const batch = parseInt(url.searchParams.get('batch') ?? '0');
