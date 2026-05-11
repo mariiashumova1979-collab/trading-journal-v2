@@ -170,9 +170,58 @@
   // ─── Диагностический одиночный запрос ───
   async function testFreedomConnection() {
     testResult = null;
+    const testTicker = prompt('Тикер для теста (AAPL, COLD, и т.д.):', 'COLD');
+    if (!testTicker) return;
+
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 14);
+
+    const params = {
+      cmd: 'getHloc',
+      params: {
+        id: testTicker.toUpperCase() + '.US',
+        count: -1,
+        timeframe: 1440,
+        date_from: fmtFreedomDate(start),
+        date_to: fmtFreedomDate(end),
+        intervalMode: 'ClosedRay'
+      }
+    };
+
+    const url = `https://tradernet.com/api/?q=${encodeURIComponent(JSON.stringify(params))}`;
+
     try {
-      const r = await fetchFreedomBatch(['AAPL']);
-      testResult = { success: true, result: r[0] };
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const data = await res.json();
+
+      const fullId = testTicker.toUpperCase() + '.US';
+      const hloc = data?.hloc?.[fullId] ?? [];
+      const vols = data?.vl?.[fullId] ?? [];
+      const xSer = data?.xSeries?.[fullId] ?? [];
+
+      // Сформируем читаемый массив свечей
+      const bars = hloc.map((c: number[], i: number) => {
+        const ts = xSer[i] ?? 0;
+        const d = new Date(ts * 1000);
+        return {
+          date: d.toISOString().split('T')[0],
+          high: c[0],
+          low: c[1],
+          open: c[2],
+          close: c[3],
+          volume: vols[i] ?? 0
+        };
+      });
+
+      testResult = {
+        success: hloc.length > 0,
+        ticker: testTicker.toUpperCase(),
+        request_url: url.substring(0, 200) + '...',
+        bars_count: hloc.length,
+        last_5_bars: bars.slice(-5),
+        info: data?.info?.[fullId]
+      };
     } catch (e: any) {
       testResult = { success: false, error: e.message };
     }
@@ -344,10 +393,15 @@
   {#if testResult}
     <div class="test-result" class:tr-ok={testResult.success} class:tr-err={!testResult.success}>
       {#if testResult.success}
-        ✓ Freedom24 API работает. AAPL: Close ${testResult.result?.close?.toFixed(2)}, MAX_5d {fmtPct(testResult.result?.max5d ?? 0)}, ATR14 {testResult.result?.atr14?.toFixed(2)}
+        <div><b>{testResult.ticker}</b> · {testResult.bars_count} свечей загружено</div>
+        {#if testResult.info}
+          <div style="font-size:10px;color:var(--color-t2);margin:4px 0">{testResult.info.short_name} · {testResult.info.currency} · {testResult.info.code_nm}</div>
+        {/if}
+        <div style="font-family:var(--font-mono);font-size:10px;margin-top:8px">Последние 5 свечей (формат: дата | O/H/L/C | Volume):</div>
+        <pre style="font-family:var(--font-mono);font-size:10px;margin:4px 0;background:rgba(0,0,0,0.2);padding:6px;border-radius:4px">{#each testResult.last_5_bars as b}{b.date}  O={b.open.toFixed(2)}  H={b.high.toFixed(2)}  L={b.low.toFixed(2)}  C={b.close.toFixed(2)}  V={b.volume.toLocaleString()}
+{/each}</pre>
       {:else}
-        ✗ Ошибка Freedom24: {testResult.error}
-        <br><span style="font-size:9px">Возможно требуется авторизация. Открой DevTools (F12) → Network для деталей.</span>
+        ✗ Ошибка: {testResult.error}
       {/if}
     </div>
   {/if}
