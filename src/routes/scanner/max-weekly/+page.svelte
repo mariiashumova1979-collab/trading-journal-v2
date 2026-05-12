@@ -183,26 +183,53 @@
 
     let res: Response | null = null;
 
+    let debugInfo: string[] = [];
+
     // Попытка 1: прямой запрос из браузера (без прокси)
     try {
       res = await fetch(yhUrl, {
         signal: AbortSignal.timeout(10000),
         headers: { 'Accept': 'application/json' }
       });
-    } catch { res = null; }
+      debugInfo.push(`Direct: HTTP ${res.status}`);
+    } catch (e: any) {
+      debugInfo.push(`Direct: EXCEPTION ${e.message}`);
+      res = null;
+    }
 
     // Попытка 2: через allorigins.win (если прямой запрос упал из-за CORS)
     if (!res || !res.ok) {
       try {
         const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(yhUrl)}`;
         res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      } catch { return []; }
+        debugInfo.push(`allorigins: HTTP ${res.status}`);
+      } catch (e: any) {
+        debugInfo.push(`allorigins: EXCEPTION ${e.message}`);
+        return [];
+      }
     }
 
-    if (!res || !res.ok) return [];
+    if (!res || !res.ok) {
+      console.warn('[Yahoo fallback]', debugInfo.join(' | '));
+      return [];
+    }
 
     let data: any;
-    try { data = await res.json(); } catch { return []; }
+    let rawText = '';
+    try {
+      rawText = await res.text();
+      data = JSON.parse(rawText);
+    } catch (e: any) {
+      console.warn('[Yahoo fallback] JSON parse error:', rawText.substring(0, 200));
+      return [];
+    }
+
+    // Диагностика в лог
+    const sparkCount = data?.spark?.result?.length ?? 0;
+    console.log(`[Yahoo fallback] ${debugInfo.join(' | ')} | spark.result: ${sparkCount} items | symbols: ${symbols.substring(0, 100)}`);
+    if (sparkCount === 0) {
+      console.warn('[Yahoo fallback] Empty spark result. Raw:', rawText.substring(0, 300));
+    }
 
     const sparkItems: any[] = data?.spark?.result ?? [];
     const results: TickerResult[] = [];
