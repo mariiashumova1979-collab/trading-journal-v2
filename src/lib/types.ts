@@ -186,9 +186,9 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   event_continuation: {
     id: 'event_continuation',
     name: 'Event',
-    icon: 'EVT',
+    icon: '⚡',
     color: '#f1c40f',
-    description: 'Event continuation после impulse',
-    active: false
+    description: 'Event impulse + compression + continuation',
+    active: true
   }
 };
