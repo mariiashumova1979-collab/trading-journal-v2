@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { calculatePosition, parseNum } from '$lib/strategies/impulse';
+  import { parseNum } from '$lib/strategies/impulse';
   import { insertTrade } from '$lib/data/trades';
   import { updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
-  import type { Candidate } from '$lib/types';
+  import type { Candidate, MaxWeeklyPayload } from '$lib/types';
 
   let { candidate, onClose, onSaved }: {
     candidate: Candidate;
@@ -11,45 +11,113 @@
     onSaved: () => void;
   } = $props();
 
+  const isMaxWeekly = candidate.strategy === 'max_weekly';
+  const mwPayload = isMaxWeekly ? (candidate.payload as MaxWeeklyPayload) : null;
+
   let entryDate = $state(new Date().toISOString().split('T')[0]);
-  let entryActual = $state((candidate.entry || 0).toFixed(2));
+  let entryActual = $state(isMaxWeekly ? '' : (candidate.entry || 0).toFixed(2));
   let riskAmt = $state('100');
   let commission = $state('0');
 
   let errors = $state<string[]>([]);
+  let warnings = $state<string[]>([]);
   let preview = $state<any>(null);
+  let gapAlert = $state<{ triggered: boolean; msg: string } | null>(null);
   let saving = $state(false);
 
+  // ─── Расчёт позиции ───
   function calc() {
+    errors = [];
+    warnings = [];
+    gapAlert = null;
+
     const entry = parseNum(entryActual);
-    const risk = parseNum(riskAmt);
+    const risk = parseNum(riskAmt) || 100;
+
     if (isNaN(entry) || entry <= 0) {
-      errors = ['Введи Entry'];
-      preview = null;
-      return;
-    }
-    if (isNaN(risk) || risk <= 0) {
-      errors = ['Введи риск'];
-      preview = null;
-      return;
-    }
-    if (!candidate.direction || candidate.stop === null || candidate.stop === undefined) {
-      errors = ['Кандидат без direction/stop — обработай D+1'];
+      errors = [isMaxWeekly ? 'Введи Open price понедельника' : 'Введи Entry'];
       preview = null;
       return;
     }
 
-    const atr = candidate.payload?.atr || 0;
-    const stop = Number(candidate.stop);
-    const pos = calculatePosition(entry, stop, atr, risk, candidate.direction);
+    if (isMaxWeekly && mwPayload) {
+      // GAP CHECK для MAX Weekly
+      if (candidate.direction === 'SHORT' && entry >= mwPayload.gap_cancel_threshold) {
+        gapAlert = {
+          triggered: true,
+          msg: `Open ${entry.toFixed(2)} ≥ ${mwPayload.gap_cancel_threshold.toFixed(2)} (+4% от пятницы) — GAP CANCEL`
+        };
+      } else if (candidate.direction === 'LONG' && entry <= mwPayload.gap_cancel_threshold) {
+        gapAlert = {
+          triggered: true,
+          msg: `Open ${entry.toFixed(2)} ≤ ${mwPayload.gap_cancel_threshold.toFixed(2)} (−4% от пятницы) — GAP CANCEL`
+        };
+      } else {
+        gapAlert = { triggered: false, msg: `Gap OK: ${candidate.direction === 'SHORT' ? '<' : '>'} ${mwPayload.gap_cancel_threshold.toFixed(2)}` };
+      }
 
-    if (pos.shares < 1) {
-      errors = ['Слишком мало акций (' + pos.shares + ') — увеличь риск'];
-      return;
+      // Стоп и цели от Entry (а не от Close T0)
+      const atr = mwPayload.atr14;
+      const stopDist = Math.min(2 * atr, entry * 0.10);
+      const stop = candidate.direction === 'SHORT' ? entry + stopDist : entry - stopDist;
+      const target1 = candidate.direction === 'SHORT' ? entry - atr : entry + atr;
+      const target2 = candidate.direction === 'SHORT' ? entry - 2 * atr : entry + 2 * atr;
+      const riskPerShare = Math.abs(entry - stop);
+      const shares = riskPerShare > 0
+        ? Math.min(
+            Math.floor((risk) / riskPerShare),
+            Math.floor((parseFloat(riskAmt) || 100) * 10 / entry)
+          )
+        : 0;
+      const positionValue = shares * entry;
+      const riskAtrRatio = atr > 0 ? riskPerShare / atr : 0;
+
+      if (shares < 1) {
+        errors = ['Слишком мало акций — увеличь риск'];
+        preview = null;
+        return;
+      }
+      if (riskAtrRatio > 2.5) {
+        warnings = [`⚠ Stop distance ${riskPerShare.toFixed(2)} > 2.5×ATR — стоп очень широкий`];
+      }
+
+      preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
+    } else {
+      // Impulse логика
+      const { calculatePosition } = require ? undefined : undefined;
+      // Используем candidate.stop напрямую
+      if (!candidate.direction || candidate.stop === null || candidate.stop === undefined) {
+        errors = ['Кандидат без direction/stop'];
+        preview = null;
+        return;
+      }
+      const stop = Number(candidate.stop);
+      const atr = (candidate.payload as any)?.atr || 0;
+      const riskPerShare = Math.abs(entry - stop);
+      const shares = riskPerShare > 0 ? Math.floor(risk / riskPerShare) : 0;
+      const riskAtrRatio = atr > 0 ? riskPerShare / atr : 0;
+      const positionValue = shares * entry;
+      const target1 = candidate.direction === 'LONG' ? entry + riskPerShare : entry - riskPerShare;
+      const target2 = candidate.direction === 'LONG' ? entry + 2 * riskPerShare : entry - 2 * riskPerShare;
+
+      if (shares < 1) { errors = ['Слишком мало акций — увеличь риск']; preview = null; return; }
+      if (riskAtrRatio > 1.5) warnings = [`⚠ Risk/ATR = ${riskAtrRatio.toFixed(2)} > 1.5`];
+
+      preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
     }
+  }
 
-    errors = pos.risk_warning ? ['⚠ Risk/ATR = ' + pos.risk_atr_ratio.toFixed(2) + ' > 1.5 — стоп слишком широкий'] : [];
-    preview = pos;
+  async function handleGapCancel() {
+    saving = true;
+    try {
+      await updateCandidate(candidate.id, { status: 'GAP_CANCEL' });
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      errors = ['Ошибка: ' + e.message];
+    } finally {
+      saving = false;
+    }
   }
 
   async function save() {
@@ -59,11 +127,28 @@
 
     saving = true;
     try {
+      const entry = parseNum(entryActual);
+      const atr = isMaxWeekly ? mwPayload!.atr14 : (candidate.payload as any)?.atr || 0;
+
+      const notes = isMaxWeekly && mwPayload
+        ? [
+            `MAX Weekly signal: ${candidate.direction}`,
+            `Friday close (T0): $${mwPayload.close_t0.toFixed(2)}`,
+            `MAX_5d: ${(mwPayload.max5d * 100).toFixed(1)}% | MAX_pct: ${mwPayload.maxPct.toFixed(0)}`,
+            `Return_5d: ${(mwPayload.return5d * 100).toFixed(1)}% | VolSpike: ${mwPayload.volSpike5d.toFixed(2)}x`,
+            `ATR14: ${mwPayload.atr14.toFixed(2)} | ADV20: $${(mwPayload.adv20 / 1_000_000).toFixed(1)}M`
+          ].join('\n')
+        : (() => {
+            const p = candidate.payload as any;
+            const base = 'D0: ' + candidate.signal_date + ' | Pattern: ' + (p?.pattern || 'N/A') + ' | ATR: ' + (p?.atr?.toFixed(2) || 'N/A');
+            return p?.d1_note ? base + '\n' + p.d1_note : base;
+          })();
+
       const trade = await insertTrade({
         user_id: $user.id,
         ticker: candidate.ticker,
         type: candidate.direction!,
-        strategy: 'impulse',
+        strategy: candidate.strategy,
         entry_date: entryDate,
         entry: preview.entry,
         shares: preview.shares,
@@ -72,30 +157,26 @@
         target2: preview.target2,
         status: 'OPEN',
         commission: parseNum(commission) || 0,
-        notes: (() => {
-          const baseNote = 'D0: ' + candidate.signal_date + ' | Pattern: ' + (candidate.payload?.pattern || 'N/A') + ' | ATR: ' + (candidate.payload?.atr?.toFixed(2) || 'N/A');
-          const d1Note = (candidate.payload as any)?.d1_note;
-          return d1Note ? baseNote + '\n' + d1Note : baseNote;
-        })(),
-        atr_pct: candidate.payload?.atr ? (candidate.payload.atr / preview.entry * 100) : null,
-        atr_abs: candidate.payload?.atr || null,
-        impulse_anchor: candidate.direction === 'LONG' ? candidate.payload?.d0?.L ?? null : candidate.payload?.d0?.H ?? null,
-        setup: {
-          d0: candidate.payload?.d0,
-          d1: candidate.payload?.d1,
-          atr: candidate.payload?.atr,
-          rel_vol: candidate.payload?.rel_vol,
-          pattern: candidate.payload?.pattern,
+        notes,
+        atr_pct: atr ? (atr / preview.entry * 100) : null,
+        atr_abs: atr || null,
+        impulse_anchor: isMaxWeekly ? mwPayload!.close_t0 : (
+          candidate.direction === 'LONG'
+            ? (candidate.payload as any)?.d0?.L ?? null
+            : (candidate.payload as any)?.d0?.H ?? null
+        ),
+        setup: isMaxWeekly ? null : {
+          d0: (candidate.payload as any)?.d0,
+          d1: (candidate.payload as any)?.d1,
+          atr: (candidate.payload as any)?.atr,
+          rel_vol: (candidate.payload as any)?.rel_vol,
+          pattern: (candidate.payload as any)?.pattern,
           d0_date: candidate.signal_date,
-          metrics: candidate.payload?.metrics
+          metrics: (candidate.payload as any)?.metrics
         }
       });
 
-      await updateCandidate(candidate.id, {
-        status: 'ENTERED',
-        trade_id: trade.id
-      });
-
+      await updateCandidate(candidate.id, { status: 'ENTERED', trade_id: trade.id });
       onSaved();
       onClose();
     } catch (e: any) {
@@ -113,11 +194,21 @@
       <button onclick={onClose} class="cls" aria-label="Close">×</button>
     </div>
 
-    <div class="info">
-      <div>Pattern D+1: <b>{candidate.payload?.pattern || 'не подтверждён'}</b></div>
-      <div>Calculated entry: ${candidate.entry?.toFixed(2)} · Stop: ${candidate.stop !== null ? Number(candidate.stop).toFixed(2) : '—'}</div>
-      <div>ATR: {candidate.payload?.atr?.toFixed(2)} · 0.2×ATR: {candidate.payload?.atr ? (0.2 * candidate.payload.atr).toFixed(2) : '—'}</div>
-    </div>
+    <!-- INFO: MAX Weekly -->
+    {#if isMaxWeekly && mwPayload}
+      <div class="info">
+        <div>Стратегия: <b style="color:#a78bfa">MAX Weekly</b> · Сигнал: <b style="color:{candidate.direction==='SHORT'?'var(--color-acc2)':'var(--color-acc)'}">{candidate.direction}</b></div>
+        <div>Пятница Close (T0): <b>${mwPayload.close_t0.toFixed(2)}</b> · ATR14: <b>{mwPayload.atr14.toFixed(2)}</b></div>
+        <div>MAX_5d: <b>{(mwPayload.max5d*100).toFixed(1)}%</b> · MAX_pct: <b>{mwPayload.maxPct.toFixed(0)}</b> · VolSpike: <b>{mwPayload.volSpike5d.toFixed(2)}x</b></div>
+        <div>Gap cancel: <b style="color:var(--color-acc3)">{candidate.direction==='SHORT' ? 'Open ≥' : 'Open ≤'} ${mwPayload.gap_cancel_threshold.toFixed(2)}</b></div>
+      </div>
+    {:else}
+      <div class="info">
+        <div>Pattern D+1: <b>{(candidate.payload as any)?.pattern || 'не подтверждён'}</b></div>
+        <div>Calculated entry: ${candidate.entry?.toFixed(2)} · Stop: ${candidate.stop !== null ? Number(candidate.stop).toFixed(2) : '—'}</div>
+        <div>ATR: {(candidate.payload as any)?.atr?.toFixed(2)} · 0.2×ATR: {(candidate.payload as any)?.atr ? (0.2 * (candidate.payload as any).atr).toFixed(2) : '—'}</div>
+      </div>
+    {/if}
 
     <div class="row">
       <div class="fg">
@@ -125,15 +216,16 @@
         <input id="tf-date" type="date" bind:value={entryDate} />
       </div>
       <div class="fg">
-        <label for="tf-entry">Фактический Entry</label>
-        <input id="tf-entry" bind:value={entryActual} inputmode="decimal" />
+        <label for="tf-entry">{isMaxWeekly ? 'Open price (понедельник)' : 'Фактический Entry'}</label>
+        <input id="tf-entry" bind:value={entryActual} oninput={calc} inputmode="decimal"
+          placeholder={isMaxWeekly ? 'Введи Open понедельника' : ''} />
       </div>
     </div>
 
     <div class="row">
       <div class="fg">
         <label for="tf-risk">Риск $</label>
-        <input id="tf-risk" bind:value={riskAmt} inputmode="numeric" />
+        <input id="tf-risk" bind:value={riskAmt} oninput={calc} inputmode="numeric" />
       </div>
       <div class="fg">
         <label for="tf-comm">Комиссия $</label>
@@ -141,24 +233,48 @@
       </div>
     </div>
 
+    <!-- GAP CHECK для MAX Weekly -->
+    {#if isMaxWeekly && gapAlert}
+      <div class="gap-check" class:gap-ok={!gapAlert.triggered} class:gap-fail={gapAlert.triggered}>
+        {#if gapAlert.triggered}
+          ⚠ {gapAlert.msg}
+          <div style="margin-top:8px">
+            <button class="btn-r" onclick={handleGapCancel} disabled={saving} style="font-size:10px">
+              Пометить GAP CANCEL
+            </button>
+          </div>
+        {:else}
+          ✓ {gapAlert.msg}
+        {/if}
+      </div>
+    {/if}
+
     {#if errors.length}
       <div class="err">{#each errors as e}<div>• {e}</div>{/each}</div>
     {/if}
+    {#if warnings.length}
+      <div class="warn">{#each warnings as w}<div>{w}</div>{/each}</div>
+    {/if}
 
-    {#if preview}
+    {#if preview && (!gapAlert?.triggered)}
       <div class="prev">
         <div class="prev-h">POSITION</div>
         <div>Entry: <b>${preview.entry.toFixed(2)}</b> · Stop: <b style="color:var(--color-acc2)">${preview.stop.toFixed(2)}</b></div>
-        <div>Risk/share: <b>${preview.risk_per_share.toFixed(2)}</b> · Risk/ATR: <b>{preview.risk_atr_ratio.toFixed(2)}</b></div>
-        <div>Shares: <b>{preview.shares}</b> · Position: <b>${preview.position_value.toFixed(0)}</b> · Real risk: <b>${preview.risk_amount.toFixed(2)}</b></div>
-        <div>T1: <b>${preview.target1.toFixed(2)}</b> (+1R) · T2: <b>${preview.target2.toFixed(2)}</b> (+2R)</div>
+        <div>Risk/share: <b>${preview.riskPerShare.toFixed(2)}</b>{#if preview.riskAtrRatio} · Risk/ATR: <b>{preview.riskAtrRatio.toFixed(2)}</b>{/if}</div>
+        <div>Shares: <b>{preview.shares}</b> · Position: <b>${preview.positionValue.toFixed(0)}</b></div>
+        <div>T1 (60%): <b>${preview.target1.toFixed(2)}</b> · T2 (40%): <b>${preview.target2.toFixed(2)}</b></div>
+        {#if isMaxWeekly}
+          <div style="font-size:9px;color:var(--color-t2);margin-top:4px">Time stop: пятница D+5 · После T1 → стоп в безубыток</div>
+        {/if}
       </div>
     {/if}
 
     <div class="ar">
       <button onclick={onClose}>Отмена</button>
-      <button onclick={calc}>Рассчитать</button>
-      <button onclick={save} disabled={!preview || saving} class="btn-p">
+      {#if !isMaxWeekly}
+        <button onclick={calc}>Рассчитать</button>
+      {/if}
+      <button onclick={save} disabled={!preview || saving || gapAlert?.triggered} class="btn-p">
         {saving ? 'Сохранение...' : 'Открыть сделку'}
       </button>
     </div>
@@ -175,7 +291,11 @@
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
   .fg label { display: block; font-family: var(--font-mono); font-size: 9px; color: var(--color-t2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   .fg input { width: 100%; }
+  .gap-check { padding: 10px 12px; border-radius: 6px; font-family: var(--font-mono); font-size: 11px; margin: 12px 0; }
+  .gap-ok { background: rgba(126,232,162,0.1); border: 1px solid var(--color-acc); }
+  .gap-fail { background: rgba(255,107,138,0.1); border: 1px solid var(--color-acc2); color: var(--color-text); }
   .err { padding: 10px 12px; background: #ff000010; border: 1px solid #ff000040; color: var(--color-acc2); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; line-height: 1.7; }
+  .warn { padding: 10px 12px; background: rgba(255,200,90,0.1); border: 1px solid rgba(255,200,90,0.4); color: var(--color-acc3); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; }
   .prev { padding: 12px; background: var(--color-bg3); border: 1px solid var(--color-acc); color: var(--color-text); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; line-height: 1.9; }
   .prev-h { font-weight: 700; color: var(--color-acc); letter-spacing: 1px; margin-bottom: 6px; }
   .ar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }

@@ -1,7 +1,7 @@
 export type TradeType = 'LONG' | 'SHORT';
 export type TradeStatus = 'OPEN' | 'PARTIAL' | 'CLOSED';
 export type TradeResult = 'WIN' | 'LOSS' | null;
-export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation';
+export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly';
 
 export interface Trade {
   id: string;
@@ -101,7 +101,7 @@ export interface Candidate {
   stop: number | null;
   target1: number | null;
   target2: number | null;
-  payload: ImpulsePayload | null;
+  payload: ImpulsePayload | MaxWeeklyPayload | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +114,23 @@ export interface ImpulsePayload {
   rel_vol: number;
   metrics: SetupMetrics;
   pattern?: string | null;
+  d1_note?: string | null;
+}
+
+export interface MaxWeeklyPayload {
+  close_t0: number;
+  atr14: number;
+  adv20: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  max5d: number;
+  min5d: number;
+  return5d: number;
+  volSpike5d: number;
+  maxPct: number;
+  minPct: number;
+  returnPct: number;
+  gap_cancel_threshold: number; // close * 1.04 (SHORT) или close * 0.96 (LONG)
 }
 
 export interface StrategyDef {
@@ -132,6 +149,14 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
     icon: 'IMP',
     color: '#e74c3c',
     description: 'Импульсное движение D0 с подтверждением на D+1',
+    active: true
+  },
+  max_weekly: {
+    id: 'max_weekly',
+    name: 'MAX Weekly',
+    icon: '📊',
+    color: '#a78bfa',
+    description: 'Еженедельный возврат к среднему после экстремального движения',
     active: true
   },
   rspc: {
