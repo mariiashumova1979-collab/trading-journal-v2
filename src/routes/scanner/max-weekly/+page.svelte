@@ -1,6 +1,9 @@
 <script lang="ts">
   // ─── MAX Weekly Reversal Scanner ───
   // Источник данных: Freedom24 API (tradernet.com/api/getHloc)
+  import { insertCandidate } from '$lib/data/candidates';
+  import { user } from '$lib/stores/auth';
+  // Источник данных: Freedom24 API (tradernet.com/api/getHloc)
   // ВАЖНО: HLOC массив возвращается в порядке [High, Low, Open, Close]
 
   interface TickerResult {
@@ -20,7 +23,11 @@
     signal?: 'SHORT' | 'LONG' | null;
   }
 
-  const BATCH = 30; // тикеров на один запрос
+  const BATCH = 30;
+
+  let savedTickers = $state<Set<string>>(new Set());
+  let savingAll = $state(false);
+  let saveError = $state<string | null>(null); // тикеров на один запрос
 
   let allResults = $state<TickerResult[]>([]);
   let ranked = $state<TickerResult[]>([]);
@@ -167,6 +174,114 @@
     return results;
   }
 
+  // ─── Yahoo Finance fallback для тикеров не найденных во Freedom24 ───
+  async function fetchYahooBatch(tickers: string[]): Promise<TickerResult[]> {
+    if (tickers.length === 0) return [];
+
+    const symbols = tickers.join('%2C');
+    const yhUrl = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=2mo&interval=1d`;
+
+    let res: Response | null = null;
+
+    // Попытка 1: прямой запрос из браузера (без прокси)
+    try {
+      res = await fetch(yhUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'Accept': 'application/json' }
+      });
+    } catch { res = null; }
+
+    // Попытка 2: через allorigins.win (если прямой запрос упал из-за CORS)
+    if (!res || !res.ok) {
+      try {
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(yhUrl)}`;
+        res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+      } catch { return []; }
+    }
+
+    if (!res || !res.ok) return [];
+
+    let data: any;
+    try { data = await res.json(); } catch { return []; }
+
+    const sparkItems: any[] = data?.spark?.result ?? [];
+    const results: TickerResult[] = [];
+
+    for (const item of sparkItems) {
+      try {
+        const symbol: string = item?.symbol;
+        const resp = item?.response?.[0];
+        if (!symbol || !resp) continue;
+
+        const q = resp.indicators?.quote?.[0] ?? {};
+        const rawH: (number|null)[] = q.high ?? [];
+        const rawL: (number|null)[] = q.low ?? [];
+        const rawC: (number|null)[] = q.close ?? [];
+        const rawV: (number|null)[] = q.volume ?? [];
+
+        const idx = rawC.map((_: any, i: number) => i)
+          .filter((i: number) => rawC[i] != null && rawH[i] != null && rawL[i] != null);
+        if (idx.length < 8) continue;
+
+        const C = idx.map((i: number) => rawC[i] as number);
+        const H = idx.map((i: number) => rawH[i] as number);
+        const L = idx.map((i: number) => rawL[i] as number);
+        const V = idx.map((i: number) => (rawV[i] ?? 0) as number);
+        const n = C.length;
+
+        const ret5: number[] = [];
+        for (let i = Math.max(1, n - 5); i < n; i++) {
+          if (C[i-1] > 0) ret5.push((C[i] - C[i-1]) / C[i-1]);
+        }
+        const max5d = ret5.length > 0 ? Math.max(...ret5) : 0;
+        const min5d = ret5.length > 0 ? Math.min(...ret5) : 0;
+        const closeT0 = C[n-1];
+        const closeT5 = C[Math.max(0, n-6)];
+        const return5d = closeT5 > 0 ? (closeT0 - closeT5) / closeT5 : 0;
+
+        const avgVol5 = V.slice(-5).reduce((a: number, b: number) => a+b, 0) / 5;
+        const vol20 = V.slice(-25, -5);
+        const avgVol20 = vol20.length > 0 ? vol20.reduce((a: number,b: number) => a+b,0)/vol20.length : avgVol5;
+        const volSpike5d = avgVol20 > 0 ? avgVol5 / avgVol20 : 1;
+
+        const last20c = C.slice(-21,-1), last20v = V.slice(-21,-1);
+        const adv20 = last20c.length > 0
+          ? last20c.reduce((s: number,c: number,i: number) => s + c*(last20v[i]||0), 0) / last20c.length
+          : 0;
+
+        // ATR14
+        const atr14 = (() => {
+          const bars = H.slice(-16).map((_: number, i: number) => ({
+            h: H.slice(-16)[i], l: L.slice(-16)[i], c: C.slice(-16)[i]
+          }));
+          if (bars.length < 2) return 0;
+          const trs: number[] = [];
+          for (let i = 1; i < bars.length; i++) {
+            trs.push(Math.max(
+              bars[i].h - bars[i].l,
+              Math.abs(bars[i].h - bars[i-1].c),
+              Math.abs(bars[i].l - bars[i-1].c)
+            ));
+          }
+          const p = Math.min(14, trs.length);
+          return trs.slice(-p).reduce((a: number,b: number) => a+b, 0) / p;
+        })();
+
+        // Убираем суффикс Yahoo (BRK-B → BRK-B, оставляем как есть)
+        const displayTicker = symbol.replace(/-/g, '.');
+
+        results.push({
+          ticker: displayTicker,
+          close: closeT0,
+          max5d, min5d, return5d, volSpike5d, adv20, atr14,
+          fiftyTwoWeekHigh: Math.max(...H),
+          fiftyTwoWeekLow: Math.min(...L)
+        });
+      } catch { /* skip */ }
+    }
+    return results;
+  }
+
   // ─── Диагностический одиночный запрос ───
   async function testFreedomConnection() {
     testResult = null;
@@ -255,6 +370,69 @@
     if (allResults.length > 0) ranked = computeRankings(allResults);
   });
 
+  // ─── Сохранение кандидата в Supabase ───
+  function todayStr(): string {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  async function saveCandidate(r: TickerResult) {
+    if (!$user || !r.signal || r.maxPct === undefined) return;
+    const id = r.ticker + '_' + todayStr();
+    const atr = r.atr14;
+    const sd = Math.min(2 * atr, r.close * 0.10);
+    const stop = r.signal === 'SHORT' ? r.close + sd : r.close - sd;
+    const target1 = r.signal === 'SHORT' ? r.close - atr : r.close + atr;
+    const target2 = r.signal === 'SHORT' ? r.close - 2 * atr : r.close + 2 * atr;
+    const gapThreshold = r.signal === 'SHORT' ? r.close * 1.04 : r.close * 0.96;
+
+    try {
+      await insertCandidate({
+        id,
+        user_id: $user.id,
+        strategy: 'max_weekly',
+        ticker: r.ticker,
+        signal_date: todayStr(),
+        direction: r.signal,
+        status: 'WAITING_OPEN',
+        entry: null,
+        stop,
+        target1,
+        target2,
+        payload: {
+          close_t0: r.close,
+          atr14: r.atr14,
+          adv20: r.adv20,
+          fiftyTwoWeekHigh: r.fiftyTwoWeekHigh,
+          fiftyTwoWeekLow: r.fiftyTwoWeekLow,
+          max5d: r.max5d,
+          min5d: r.min5d,
+          return5d: r.return5d,
+          volSpike5d: r.volSpike5d,
+          maxPct: r.maxPct ?? 0,
+          minPct: r.minPct ?? 100,
+          returnPct: r.returnPct ?? 50,
+          gap_cancel_threshold: gapThreshold
+        }
+      });
+      savedTickers = new Set([...savedTickers, r.ticker]);
+      saveError = null;
+    } catch (e: any) {
+      saveError = 'Ошибка сохранения ' + r.ticker + ': ' + (e.message || String(e));
+    }
+  }
+
+  async function saveTopAll() {
+    savingAll = true;
+    saveError = null;
+    const all = [...topShort, ...topLong];
+    for (const r of all) {
+      if (!savedTickers.has(r.ticker)) {
+        await saveCandidate(r);
+      }
+    }
+    savingAll = false;
+  }
+
   // ─── Загрузка universe из static ───
   async function loadUniverse(): Promise<string[]> {
     const res = await fetch('/universe.json');
@@ -318,6 +496,50 @@
       // Пауза 300ms между батчами
       if (!aborted && b < totalBatches - 1) {
         await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    // ─── ФАЗА 2: Yahoo Finance fallback для недостающих тикеров ───
+    if (!aborted && allResults.length > 0) {
+      const foundTickers = new Set(allResults.map(r => r.ticker));
+      const missingTickers = universe.filter(t => !foundTickers.has(t));
+
+      if (missingTickers.length > 0) {
+        scanLog = [
+          `📡 Yahoo fallback: ${missingTickers.length} недостающих тикеров...`,
+          ...scanLog.slice(0, 6)
+        ];
+
+        const YF_BATCH = 50; // Yahoo spark принимает до 50 за раз
+        let yf_added = 0;
+        let yf_errors = 0;
+
+        for (let i = 0; i < missingTickers.length && !aborted; i += YF_BATCH) {
+          const slice = missingTickers.slice(i, i + YF_BATCH);
+          try {
+            const yf = await fetchYahooBatch(slice);
+            if (yf.length > 0) {
+              allResults = [...allResults, ...yf];
+              ranked = computeRankings(allResults);
+              yf_added += yf.length;
+            }
+            yf_errors += slice.length - yf.length;
+            scanLog = [
+              `Yahoo батч ${Math.floor(i/YF_BATCH)+1}: +${yf.length} тикеров`,
+              ...scanLog.slice(0, 6)
+            ];
+          } catch {
+            yf_errors += slice.length;
+          }
+          // Небольшая пауза
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        errors = errors - missingTickers.length + yf_errors;
+        scanLog = [
+          `✓ Yahoo fallback завершён: +${yf_added} тикеров, ${yf_errors} ошибок`,
+          ...scanLog.slice(0, 6)
+        ];
       }
     }
 
@@ -444,10 +666,24 @@
     </div>
   {/if}
 
+  {#if saveError}
+    <div class="save-err">⚠ {saveError}</div>
+  {/if}
+
   {#if topShort.length > 0 || topLong.length > 0}
+    <div class="save-all-bar">
+      <span class="sa-info">Топ сигналы: {topShort.length} SHORT + {topLong.length} LONG</span>
+      {#if $user}
+        <button class="btn-p" onclick={saveTopAll} disabled={savingAll || (topShort.length + topLong.length === savedTickers.size)} style="font-size:10px;padding:6px 14px">
+          {savingAll ? 'Сохранение...' : `💾 Сохранить топ-${topShort.length + topLong.length} как кандидатов`}
+        </button>
+      {/if}
+    </div>
     <div class="top-signals">
       <div>
-        <div class="top-h" style="color:var(--color-acc2)">⬇ TOP-3 SHORT</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="top-h" style="color:var(--color-acc2);margin-bottom:0">⬇ TOP-3 SHORT</div>
+      </div>
         {#each topShort as r}
           {@const p = posSize(r)}
           <div class="scard short">
@@ -456,6 +692,13 @@
             <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
             <div class="smeta">T1 <b>${(r.close - r.atr14).toFixed(2)}</b> · T2 <b>${(r.close - 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Проверить шорт в Freedom24 · □ Earnings ±5 дней · □ Отмена Open ≥ ${(r.close*1.04).toFixed(2)}</div>
+            <div style="margin-top:8px">
+              {#if savedTickers.has(r.ticker)}
+                <span style="font-family:var(--font-mono);font-size:9px;color:var(--color-acc)">✓ Сохранён</span>
+              {:else if $user}
+                <button onclick={() => saveCandidate(r)} style="font-size:9px;padding:4px 10px">💾 Сохранить</button>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
@@ -469,6 +712,13 @@
             <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
             <div class="smeta">T1 <b>${(r.close + r.atr14).toFixed(2)}</b> · T2 <b>${(r.close + 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Earnings ±5 дней · □ Отмена Open ≤ ${(r.close*0.96).toFixed(2)}</div>
+            <div style="margin-top:8px">
+              {#if savedTickers.has(r.ticker)}
+                <span style="font-family:var(--font-mono);font-size:9px;color:var(--color-acc)">✓ Сохранён</span>
+              {:else if $user}
+                <button onclick={() => saveCandidate(r)} style="font-size:9px;padding:4px 10px">💾 Сохранить</button>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
@@ -517,7 +767,20 @@
               <td style="color:{r.volSpike5d>=1.5?'var(--color-acc3)':'inherit'}">{r.volSpike5d.toFixed(2)}×</td>
               <td style="color:{r.adv20<10_000_000?'var(--color-acc2)':'inherit'}">${(r.adv20/1_000_000).toFixed(1)}M</td>
               <td>{r.atr14.toFixed(2)}</td>
-              <td>{#if r.signal}<span style="color:{r.signal==='SHORT'?'var(--color-acc2)':'var(--color-acc)'};font-weight:700">{r.signal}</span>{:else}<span style="color:var(--color-t3)">—</span>{/if}</td>
+              <td>
+                {#if r.signal}
+                  <span style="color:{r.signal==='SHORT'?'var(--color-acc2)':'var(--color-acc)'};font-weight:700">{r.signal}</span>
+                  {#if $user}
+                    {#if savedTickers.has(r.ticker)}
+                      <span style="font-family:var(--font-mono);font-size:9px;color:var(--color-acc);margin-left:6px">✓</span>
+                    {:else}
+                      <button onclick={() => saveCandidate(r)} style="font-size:9px;padding:2px 6px;margin-left:4px">💾</button>
+                    {/if}
+                  {/if}
+                {:else}
+                  <span style="color:var(--color-t3)">—</span>
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -574,4 +837,7 @@
   .row-long { background: rgba(126,232,162,0.04); }
   .state { padding: 40px; text-align: center; color: var(--color-t2); font-family: var(--font-mono); font-size: 11px; }
   .err { color: var(--color-acc2); }
+  .save-err { padding: 8px 14px; background: rgba(255,107,138,0.1); border: 1px solid var(--color-acc2); border-radius: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-acc2); margin-bottom: 10px; }
+  .save-all-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--color-bg2); border: 1px solid rgba(167,139,250,0.3); border-radius: 8px; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .sa-info { font-family: var(--font-mono); font-size: 11px; color: var(--color-t2); }
 </style>
