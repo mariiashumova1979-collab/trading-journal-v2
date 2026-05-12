@@ -467,6 +467,8 @@
   }
 
   // ─── Главный цикл ───
+  // Фаза 1: Yahoo Finance (50 тикеров за запрос через spark endpoint)
+  // Фаза 2: Freedom24 fallback для тикеров не найденных в Yahoo
   async function runScan() {
     scanning = true; aborted = false; done = false;
     allResults = []; ranked = []; progress = 0; errors = 0; scanLog = [];
@@ -480,93 +482,109 @@
       scanning = false; return;
     }
 
-    totalBatches = Math.ceil(universe.length / BATCH);
+    // ─── ФАЗА 1: Yahoo Finance ───
+    const YF_BATCH = 50;
+    totalBatches = Math.ceil(universe.length / YF_BATCH);
+    let yf_added = 0;
+    let yf_errors = 0;
 
     for (let b = 0; b < totalBatches && !aborted; b++) {
-      const slice = universe.slice(b * BATCH, (b + 1) * BATCH);
+      const slice = universe.slice(b * YF_BATCH, (b + 1) * YF_BATCH);
       currentBatch = b + 1;
-      scanLog = [`Батч ${b + 1}/${totalBatches}: запрос ${slice.length} тикеров...`, ...scanLog.slice(0, 6)];
+      scanLog = [`📊 Yahoo батч ${b + 1}/${totalBatches}: ${slice.length} тикеров...`, ...scanLog.slice(0, 6)];
 
-      let attempts = 0;
-      let batchResults: TickerResult[] = [];
-      let batchError: string | null = null;
-
-      while (attempts < 3 && !aborted) {
-        try {
-          batchResults = await fetchFreedomBatch(slice);
-          batchError = null;
-          break;
-        } catch (e: any) {
-          attempts++;
-          batchError = e.message;
-          if (attempts < 3) {
-            scanLog = [`Батч ${b + 1}: retry ${attempts}/3 — ${e.message}`, ...scanLog.slice(0, 6)];
-            await new Promise(r => setTimeout(r, 1500 * attempts));
-          }
+      try {
+        const yf = await fetchYahooBatch(slice);
+        if (yf.length > 0) {
+          allResults = [...allResults, ...yf];
+          ranked = computeRankings(allResults);
+          yf_added += yf.length;
         }
+        const batchErr = slice.length - yf.length;
+        yf_errors += batchErr;
+        progress += slice.length;
+        scanLog = [
+          `Yahoo ${b + 1}/${totalBatches}: +${yf.length} тикеров, ${batchErr} ошибок`,
+          ...scanLog.slice(0, 6)
+        ];
+      } catch (e: any) {
+        yf_errors += slice.length;
+        progress += slice.length;
+        scanLog = [`Yahoo ${b + 1}/${totalBatches}: ОШИБКА — ${e.message}`, ...scanLog.slice(0, 6)];
       }
 
-      const batchErrCount = slice.length - batchResults.length;
-      errors += batchErrCount;
-      progress += slice.length;
-
-      if (batchResults.length > 0) {
-        allResults = [...allResults, ...batchResults];
-        ranked = computeRankings(allResults);
-      }
-
-      scanLog = [
-        `Батч ${b + 1}/${totalBatches}: +${batchResults.length} тикеров${batchError ? ' · ОШИБКА: ' + batchError : ''}`,
-        ...scanLog.slice(0, 6)
-      ];
-
-      // Пауза 300ms между батчами
       if (!aborted && b < totalBatches - 1) {
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 200));
       }
     }
 
-    // ─── ФАЗА 2: Yahoo Finance fallback для недостающих тикеров ───
-    if (!aborted && allResults.length > 0) {
-      const foundTickers = new Set(allResults.map(r => r.ticker));
-      const missingTickers = universe.filter(t => !foundTickers.has(t));
+    errors = yf_errors;
+    scanLog = [
+      `✓ Yahoo: ${yf_added} тикеров. Запускаю Freedom24 fallback...`,
+      ...scanLog.slice(0, 6)
+    ];
+
+    // ─── ФАЗА 2: Freedom24 для тикеров которых нет в Yahoo ───
+    if (!aborted) {
+      const foundTickers = new Set(allResults.map(r => r.ticker.toUpperCase()));
+      // universe хранит тикеры без .US, Yahoo возвращает их как есть
+      // Freedom24 использует ticker.US формат
+      const missingTickers = universe.filter(t => {
+        // Проверяем оба варианта написания
+        return !foundTickers.has(t.toUpperCase()) && !foundTickers.has(t.replace(/-/g, '.').toUpperCase());
+      });
 
       if (missingTickers.length > 0) {
         scanLog = [
-          `📡 Yahoo fallback: ${missingTickers.length} недостающих тикеров...`,
+          `📡 Freedom24 fallback: ${missingTickers.length} тикеров...`,
           ...scanLog.slice(0, 6)
         ];
 
-        const YF_BATCH = 50; // Yahoo spark принимает до 50 за раз
-        let yf_added = 0;
-        let yf_errors = 0;
+        const F24_BATCH = 30;
+        const f24Batches = Math.ceil(missingTickers.length / F24_BATCH);
+        let f24_added = 0;
+        let f24_errors = 0;
 
-        for (let i = 0; i < missingTickers.length && !aborted; i += YF_BATCH) {
-          const slice = missingTickers.slice(i, i + YF_BATCH);
-          try {
-            const yf = await fetchYahooBatch(slice);
-            if (yf.length > 0) {
-              allResults = [...allResults, ...yf];
-              ranked = computeRankings(allResults);
-              yf_added += yf.length;
+        for (let b = 0; b < f24Batches && !aborted; b++) {
+          const slice = missingTickers.slice(b * F24_BATCH, (b + 1) * F24_BATCH);
+          let attempts = 0;
+          let batchResults: TickerResult[] = [];
+
+          while (attempts < 2 && !aborted) {
+            try {
+              batchResults = await fetchFreedomBatch(slice);
+              break;
+            } catch (e: any) {
+              attempts++;
+              if (attempts < 2) await new Promise(r => setTimeout(r, 1500));
             }
-            yf_errors += slice.length - yf.length;
-            scanLog = [
-              `Yahoo батч ${Math.floor(i/YF_BATCH)+1}: +${yf.length} тикеров`,
-              ...scanLog.slice(0, 6)
-            ];
-          } catch {
-            yf_errors += slice.length;
           }
-          // Небольшая пауза
-          await new Promise(r => setTimeout(r, 200));
+
+          if (batchResults.length > 0) {
+            allResults = [...allResults, ...batchResults];
+            ranked = computeRankings(allResults);
+            f24_added += batchResults.length;
+          }
+          f24_errors += slice.length - batchResults.length;
+
+          scanLog = [
+            `Freedom24 ${b + 1}/${f24Batches}: +${batchResults.length} тикеров`,
+            ...scanLog.slice(0, 6)
+          ];
+
+          if (!aborted && b < f24Batches - 1) {
+            await new Promise(r => setTimeout(r, 300));
+          }
         }
 
-        errors = errors - missingTickers.length + yf_errors;
+        errors = f24_errors;
         scanLog = [
-          `✓ Yahoo fallback завершён: +${yf_added} тикеров, ${yf_errors} ошибок`,
+          `✓ Freedom24 fallback: +${f24_added} тикеров, ${f24_errors} ошибок`,
           ...scanLog.slice(0, 6)
         ];
+      } else {
+        errors = 0;
+        scanLog = [`✓ Yahoo покрыл все тикеры`, ...scanLog.slice(0, 6)];
       }
     }
 
