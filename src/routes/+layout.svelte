@@ -58,7 +58,7 @@
       </nav>
       <div class="user-area">
         <a href="/trades" class="link" class:active={$page.url.pathname === '/trades'}>Сделки</a>
-        <a href="/scanner/max-weekly" class="link" class:active={$page.url.pathname === '/scanner/max-weekly'}>📊 MAX Weekly</a>
+        <a href="/scanner/max_weekly" class="link" class:active={$page.url.pathname === '/scanner/max_weekly'}>📊 MAX Weekly</a>
         <a href="/scanner/event_continuation" class="link" class:active={$page.url.pathname.startsWith('/scanner/event_continuation')}>⚡ Event</a>
         <a href="/scanner/pead" class="link" class:active={$page.url.pathname.startsWith('/scanner/pead')}>🎯 PEG</a>
         <a href="/scanner/max-weekly-candidates" class="link" class:active={$page.url.pathname === '/scanner/max-weekly-candidates'}>📋 MW Кандидаты</a>
