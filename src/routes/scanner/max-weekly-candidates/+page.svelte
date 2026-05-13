@@ -173,9 +173,18 @@
             </div>
             {#if c.status === 'WAITING_OPEN'}
               <div class="card-checklist">
-                <span>□ Проверить шорт в Freedom24</span>
+                {#if c.direction === 'SHORT'}
+                  <span>□ Проверить шорт в Freedom24</span>
+                {/if}
                 <span>□ Earnings ±5 дней</span>
                 <span>□ Понедельник: Open {c.direction==='SHORT'?'<':'>'} ${p.gap_cancel_threshold.toFixed(2)}</span>
+                {#if c.direction === 'LONG'}
+                  <span class="long-rule">⚡ D+1 EOD: закрыть если Close ≤ Entry или красная свеча</span>
+                  <span class="long-rule">⚡ Time stop: D+3 (среда)</span>
+                  <span class="long-rule">⚡ После T1 (1.5×ATR): trail = max(stop, Low вчер.дня)</span>
+                {:else}
+                  <span>□ Time stop: D+5 (пятница)</span>
+                {/if}
               </div>
             {/if}
           {/if}
@@ -253,6 +262,7 @@
   .card-levels b { color: var(--color-text); }
   .card-checklist { font-family: var(--font-mono); font-size: 9px; color: var(--color-t3); display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-top: 1px solid var(--color-line); margin-bottom: 8px; }
   .card-actions { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--color-line); flex-wrap: wrap; }
+  .long-rule { color: var(--color-acc3); }
   .btn-del { background: transparent; border: 1px solid var(--color-line); color: var(--color-t2); border-radius: 4px; cursor: pointer; }
   .btn-del:hover { border-color: var(--color-acc2); color: var(--color-acc2); }
 </style>

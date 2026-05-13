@@ -266,7 +266,8 @@
     const atr = r.atr14;
     const sd = Math.min(2 * atr, r.close * 0.10);
     const stop = r.signal === 'SHORT' ? r.close + sd : r.close - sd;
-    const target1 = r.signal === 'SHORT' ? r.close - atr : r.close + atr;
+    // T1 = 1.5×ATR (Докрутка 2A), T2 = 2×ATR
+    const target1 = r.signal === 'SHORT' ? r.close - 1.5 * atr : r.close + 1.5 * atr;
     const target2 = r.signal === 'SHORT' ? r.close - 2 * atr : r.close + 2 * atr;
     const gapThreshold = r.signal === 'SHORT' ? r.close * 1.04 : r.close * 0.96;
 
@@ -387,10 +388,21 @@
       <div>Close &gt; 52wkL × 1.02</div>
     </div>
     <div class="rule-col">
-      <div class="rule-h" style="color:var(--color-acc4)">Вход / Стоп / Выход</div>
-      <div>Entry: Open понедельника · Stop: ±2×ATR14 (max 10%)</div>
-      <div>Размер: 0.8% капитала · max 10% капитала</div>
-      <div>T1 (60%): ∓1×ATR · T2 (40%): ∓2×ATR · D+5</div>
+      <div class="rule-h" style="color:var(--color-acc4)">Вход / Стоп / Цели</div>
+      <div>Entry: Open пн · Stop: ±2×ATR14 (max 10%)</div>
+      <div>Размер: 0.8% капитала · max 10%</div>
+      <div>T1 (60%): ∓1.5×ATR · T2 (40%): ∓2×ATR</div>
+    </div>
+    <div class="rule-col" style="border-color: rgba(126,232,162,0.3)">
+      <div class="rule-h" style="color:var(--color-acc)">LONG докрутка</div>
+      <div>Time stop: <b>D+3</b> (среда)</div>
+      <div>D+1 EOD exit: если Close ≤ Entry или Close &lt; Open</div>
+      <div>После T1: stop = max(текущий, Low вчер. дня)</div>
+    </div>
+    <div class="rule-col" style="border-color: rgba(255,107,138,0.3)">
+      <div class="rule-h" style="color:var(--color-acc2)">SHORT (без изменений)</div>
+      <div>Time stop: <b>D+5</b> (пятница)</div>
+      <div>После T1: стоп в безубыток</div>
     </div>
   </div>
 
@@ -437,7 +449,7 @@
             <div class="sticker">{r.ticker}</div>
             <div class="smeta">Close <b>${r.close.toFixed(2)}</b> · MAX_5d <b>{fmtPct(r.max5d)}</b> · MAX_pct <b>{r.maxPct?.toFixed(0)}</b> · Vol×<b>{r.volSpike5d.toFixed(1)}</b></div>
             <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
-            <div class="smeta">T1 <b>${(r.close - r.atr14).toFixed(2)}</b> · T2 <b>${(r.close - 2*r.atr14).toFixed(2)}</b></div>
+            <div class="smeta">T1 <b>${(r.close - 1.5 * r.atr14).toFixed(2)}</b> (1.5×ATR) · T2 <b>${(r.close - 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Шорт в Freedom24 · □ Earnings ±5 дней · □ Отмена Open ≥ ${(r.close*1.04).toFixed(2)}</div>
             <div style="margin-top:8px">
               {#if savedTickers.has(r.ticker)}
@@ -457,7 +469,7 @@
             <div class="sticker">{r.ticker}</div>
             <div class="smeta">Close <b>${r.close.toFixed(2)}</b> · MIN_5d <b>{fmtPct(r.min5d)}</b> · MIN_pct <b>{r.minPct?.toFixed(0)}</b> · Vol×<b>{r.volSpike5d.toFixed(1)}</b></div>
             <div class="smeta">Stop <b>${p.stop.toFixed(2)}</b> · Shares <b>{p.shares}</b> · Risk <b>${p.risk.toFixed(0)}</b></div>
-            <div class="smeta">T1 <b>${(r.close + r.atr14).toFixed(2)}</b> · T2 <b>${(r.close + 2*r.atr14).toFixed(2)}</b></div>
+            <div class="smeta">T1 <b>${(r.close + 1.5 * r.atr14).toFixed(2)}</b> (1.5×ATR) · T2 <b>${(r.close + 2*r.atr14).toFixed(2)}</b></div>
             <div class="scl">□ Earnings ±5 дней · □ Отмена Open ≤ ${(r.close*0.96).toFixed(2)}</div>
             <div style="margin-top:8px">
               {#if savedTickers.has(r.ticker)}

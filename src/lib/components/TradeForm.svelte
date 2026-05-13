@@ -60,7 +60,8 @@
       const atr = mwPayload.atr14;
       const stopDist = Math.min(2 * atr, entry * 0.10);
       const stop = candidate.direction === 'SHORT' ? entry + stopDist : entry - stopDist;
-      const target1 = candidate.direction === 'SHORT' ? entry - atr : entry + atr;
+      // T1 = 1.5×ATR (Докрутка 2A для MAX Weekly), T2 = 2×ATR
+      const target1 = candidate.direction === 'SHORT' ? entry - 1.5 * atr : entry + 1.5 * atr;
       const target2 = candidate.direction === 'SHORT' ? entry - 2 * atr : entry + 2 * atr;
       const riskPerShare = Math.abs(entry - stop);
       const shares = riskPerShare > 0
@@ -130,13 +131,32 @@
       const entry = parseNum(entryActual);
       const atr = isMaxWeekly ? mwPayload!.atr14 : (candidate.payload as any)?.atr || 0;
 
+      // Правила выхода зависят от направления
+      const exitRules = isMaxWeekly && candidate.direction === 'LONG'
+        ? [
+            '─ LONG DOWN-LOTTERY правила ─',
+            'Time stop: D+3 (среда)',
+            'D+1 EOD exit: закрыть если Close ≤ Entry ИЛИ Close < Open',
+            'После T1 (1.5×ATR, 60%): stop = MAX(текущий стоп, Low предыдущего дня)',
+            'T2: 2×ATR (40%)'
+          ]
+        : isMaxWeekly && candidate.direction === 'SHORT'
+        ? [
+            '─ SHORT правила ─',
+            'Time stop: D+5 (пятница)',
+            'После T1 (1.5×ATR, 60%): стоп в безубыток',
+            'T2: 2×ATR (40%)'
+          ]
+        : [];
+
       const notes = isMaxWeekly && mwPayload
         ? [
             `MAX Weekly signal: ${candidate.direction}`,
             `Friday close (T0): $${mwPayload.close_t0.toFixed(2)}`,
             `MAX_5d: ${(mwPayload.max5d * 100).toFixed(1)}% | MAX_pct: ${mwPayload.maxPct.toFixed(0)}`,
             `Return_5d: ${(mwPayload.return5d * 100).toFixed(1)}% | VolSpike: ${mwPayload.volSpike5d.toFixed(2)}x`,
-            `ATR14: ${mwPayload.atr14.toFixed(2)} | ADV20: $${(mwPayload.adv20 / 1_000_000).toFixed(1)}M`
+            `ATR14: ${mwPayload.atr14.toFixed(2)} | ADV20: $${(mwPayload.adv20 / 1_000_000).toFixed(1)}M`,
+            ...exitRules
           ].join('\n')
         : (() => {
             const p = candidate.payload as any;
@@ -264,7 +284,17 @@
         <div>Shares: <b>{preview.shares}</b> · Position: <b>${preview.positionValue.toFixed(0)}</b></div>
         <div>T1 (60%): <b>${preview.target1.toFixed(2)}</b> · T2 (40%): <b>${preview.target2.toFixed(2)}</b></div>
         {#if isMaxWeekly}
-          <div style="font-size:9px;color:var(--color-t2);margin-top:4px">Time stop: пятница D+5 · После T1 → стоп в безубыток</div>
+          {#if candidate.direction === 'LONG'}
+            <div class="mw-rules">
+              <div><b>Time stop:</b> D+3 (среда)</div>
+              <div><b>D+1 EOD exit:</b> если Close ≤ Entry или Close &lt; Open → закрыть всю позицию</div>
+              <div><b>После T1:</b> stop = MAX(текущий, Low вчерашнего дня)</div>
+            </div>
+          {:else}
+            <div class="mw-rules">
+              <div><b>Time stop:</b> D+5 (пятница) · <b>После T1:</b> стоп в безубыток</div>
+            </div>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -298,5 +328,7 @@
   .warn { padding: 10px 12px; background: rgba(255,200,90,0.1); border: 1px solid rgba(255,200,90,0.4); color: var(--color-acc3); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; }
   .prev { padding: 12px; background: var(--color-bg3); border: 1px solid var(--color-acc); color: var(--color-text); font-family: var(--font-mono); font-size: 11px; border-radius: 6px; margin: 12px 0; line-height: 1.9; }
   .prev-h { font-weight: 700; color: var(--color-acc); letter-spacing: 1px; margin-bottom: 6px; }
+  .mw-rules { font-family: var(--font-mono); font-size: 9px; color: var(--color-acc3); padding: 6px 10px; background: rgba(255,200,90,0.06); border: 1px solid rgba(255,200,90,0.2); border-radius: 4px; margin-top: 8px; line-height: 1.7; }
+  .mw-rules b { color: var(--color-text); }
   .ar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 </style>
