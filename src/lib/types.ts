@@ -177,11 +177,11 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   },
   pead: {
     id: 'pead',
-    name: 'PEAD',
-    icon: 'PEAD',
+    name: 'Post-Event Gap',
+    icon: '🎯',
     color: '#9b59b6',
-    description: 'Post-earnings drift',
-    active: false
+    description: 'B2 Post-Event Gap Continuation со scoring',
+    active: true
   },
   event_continuation: {
     id: 'event_continuation',
