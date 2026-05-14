@@ -169,11 +169,11 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
   },
   ibs_swing: {
     id: 'ibs_swing',
-    name: 'IBS RSI(2)',
-    icon: 'IBS',
+    name: 'IBS MR',
+    icon: '📉',
     color: '#3498db',
-    description: 'Mean reversion на RSI(2) + IBS',
-    active: false
+    description: 'IBS Mean Reversion в тренде (S&P500 + NDX)',
+    active: true
   },
   pead: {
     id: 'pead',
