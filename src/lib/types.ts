@@ -1,7 +1,7 @@
 export type TradeType = 'LONG' | 'SHORT';
 export type TradeStatus = 'OPEN' | 'PARTIAL' | 'CLOSED';
 export type TradeResult = 'WIN' | 'LOSS' | null;
-export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly';
+export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly' | 'nr7';
 
 export interface Trade {
   id: string;
@@ -189,6 +189,14 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
     icon: '⚡',
     color: '#f1c40f',
     description: 'Event impulse + compression + continuation',
+    active: true
+  },
+  nr7: {
+    id: 'nr7',
+    name: 'NR7',
+    icon: '📐',
+    color: '#16a085',
+    description: 'NR7 Volatility Expansion Breakout',
     active: true
   }
 };
