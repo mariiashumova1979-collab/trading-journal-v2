@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     parseNum, calcPEGD0Metrics, validatePEGD0
   } from '$lib/strategies/post_event_gap';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import { saveDraft, loadDraft, clearDraft, saveMarketData, loadMarketData } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
@@ -113,6 +115,12 @@
           payload
         });
       }
+      clearDraft(draftKey);
+      const v = parseNum(vix);
+      saveMarketData(d0Date, {
+        ...(isNaN(v) ? {} : { vix: v }),
+        spyAboveEma20: spyAbove
+      });
       onAdded(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -122,6 +130,66 @@
   }
 
   $effect(() => { if (isEdit && !preview) calc(); });
+
+  // ─── Draft + Market ───
+  const draftKey = isEdit ? `peg_edit_${editCandidate?.id}` : 'peg_new';
+
+  onMount(() => {
+    if (!isEdit) {
+      const d = loadDraft<any>(draftKey);
+      if (d) {
+        if (d.ticker)      ticker      = d.ticker;
+        if (d.d0Date)      d0Date      = d.d0Date;
+        if (d.prevC)       prevC       = d.prevC;
+        if (d.d0O)         d0O         = d.d0O;
+        if (d.d0H)         d0H         = d.d0H;
+        if (d.d0L)         d0L         = d.d0L;
+        if (d.d0C)         d0C         = d.d0C;
+        if (d.d0V)         d0V         = d.d0V;
+        if (d.atr14)       atr14       = d.atr14;
+        if (d.avgVol)      avgVol      = d.avgVol;
+        if (d.hc10)        hc10        = d.hc10;
+        if (d.lc10)        lc10        = d.lc10;
+        if (d.hc20)        hc20        = d.hc20;
+        if (d.lc20)        lc20        = d.lc20;
+        if (typeof d.spyAbove === 'boolean')    spyAbove    = d.spyAbove;
+        if (typeof d.qqqAbove === 'boolean')    qqqAbove    = d.qqqAbove;
+        if (d.vix)                              vix         = d.vix;
+        if (typeof d.sectorAbove === 'boolean') sectorAbove = d.sectorAbove;
+      }
+    }
+    const mkt = loadMarketData(d0Date);
+    if (mkt) {
+      if (mkt.vix !== undefined && !vix) vix = String(mkt.vix);
+      if (typeof mkt.spyAboveEma20 === 'boolean') spyAbove = mkt.spyAboveEma20;
+      // qqqAboveEma20 хранится отдельно — добавим как extension
+    }
+    calc();
+  });
+
+  $effect(() => {
+    if (isEdit) return;
+    saveDraft(draftKey, {
+      ticker, d0Date, prevC, d0O, d0H, d0L, d0C, d0V,
+      atr14, avgVol, hc10, lc10, hc20, lc20,
+      spyAbove, qqqAbove, vix, sectorAbove
+    });
+  });
+
+  function resetDraft() {
+    if (!confirm('Очистить все поля и сбросить черновик?')) return;
+    clearDraft(draftKey);
+    ticker = '';
+    prevC = ''; d0O = ''; d0H = ''; d0L = ''; d0C = ''; d0V = '';
+    atr14 = ''; avgVol = ''; hc10 = ''; lc10 = ''; hc20 = ''; lc20 = '';
+    spyAbove = true; qqqAbove = true; vix = '18'; sectorAbove = true;
+    preview = null; errors = []; warnings = [];
+    const mkt = loadMarketData(d0Date);
+    if (mkt) {
+      if (mkt.vix !== undefined) vix = String(mkt.vix);
+      if (typeof mkt.spyAboveEma20 === 'boolean') spyAbove = mkt.spyAboveEma20;
+    }
+  }
 
   const fmtPct = (v: number) => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
   const clr = (ok: boolean) => ok ? 'var(--color-acc)' : 'var(--color-acc2)';
@@ -210,6 +278,7 @@
     {/if}
 
     <div class="ar">
+      {#if !isEdit}<button onclick={resetDraft} type="button" title="Очистить черновик">↻ Сбросить</button>{/if}
       <button onclick={onClose}>Отмена</button>
       <button onclick={save} disabled={!preview?.v?.valid || saving} class="btn-p">
         {saving ? 'Сохранение...' : isEdit ? 'Сохранить' : 'Добавить'}

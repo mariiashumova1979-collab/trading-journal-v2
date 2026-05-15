@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { parseNum, checkD1Gap, checkD2Adverse } from '$lib/strategies/nr7';
   import { updateCandidate } from '$lib/data/candidates';
   import { updateTrade } from '$lib/data/trades';
+  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { candidate, onClose, onUpdated }: {
@@ -22,6 +24,23 @@
   let fillPrice = $state(buyOrSellStop ? Number(buyOrSellStop).toFixed(2) : '');
   let closeD2   = $state('');
   let d1Date    = $state(new Date().toISOString().split('T')[0]);
+
+  const draftKey = `nr7_d1_${candidate.id}`;
+
+  onMount(() => {
+    const d = loadDraft<any>(draftKey);
+    if (d) {
+      if (d.mode)      mode      = d.mode;
+      if (d.openD1)    openD1    = d.openD1;
+      if (d.fillPrice) fillPrice = d.fillPrice;
+      if (d.closeD2)   closeD2   = d.closeD2;
+      if (d.d1Date)    d1Date    = d.d1Date;
+    }
+  });
+
+  $effect(() => {
+    saveDraft(draftKey, { mode, openD1, fillPrice, closeD2, d1Date });
+  });
 
   let result    = $state<any>(null);
   let errors    = $state<string[]>([]);
@@ -48,6 +67,7 @@
       const updates: any = { payload: { ...payload, d1_gap_note: result.note, d1_date: d1Date } };
       if (result.check.mode === 'GAP_FAR') updates.status = 'REJECTED';
       await updateCandidate(candidate.id, updates);
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -89,6 +109,7 @@
         target2: result.target2,
         payload: { ...payload, d1_fill_note: result.note, d1_date: d1Date }
       });
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -102,6 +123,7 @@
         status: 'REJECTED',
         payload: { ...payload, d1_expired: true, d1_date: d1Date, d1_fill_note: `D+1 (${d1Date}): ордер не сработал, отменён в 15:45 EST` }
       });
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -139,6 +161,7 @@
           await updateTrade(trade.id, { notes: (trade.notes || '') + '\n' + result.note });
         }
       }
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];

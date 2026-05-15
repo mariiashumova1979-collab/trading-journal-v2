@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { parseNum, calcNR7D0Metrics, validateNR7D0, calcNR7Entry } from '$lib/strategies/nr7';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import { saveDraft, loadDraft, clearDraft, saveMarketData, loadMarketData } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
@@ -123,6 +125,16 @@
           payload
         });
       }
+      // Очищаем черновик и сохраняем маркет-данные
+      clearDraft(draftKey);
+      const spyC = parseNum(spyClose), spyE = parseNum(spyEma50), v = parseNum(vix);
+      if (!isNaN(spyC) || !isNaN(spyE) || !isNaN(v)) {
+        saveMarketData(t0Date, {
+          ...(isNaN(spyC) ? {} : { spyClose: spyC }),
+          ...(isNaN(spyE) ? {} : { spyEma50: spyE }),
+          ...(isNaN(v)    ? {} : { vix: v })
+        });
+      }
       onAdded(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -130,6 +142,70 @@
   }
 
   $effect(() => { if (isEdit && !preview) calc(); });
+
+  // ─── Draft + Market data ───
+  const draftKey = isEdit ? `nr7_edit_${editCandidate?.id}` : 'nr7_new';
+
+  onMount(() => {
+    // 1. Восстанавливаем черновик (только в режиме "new")
+    if (!isEdit) {
+      const d = loadDraft<any>(draftKey);
+      if (d) {
+        if (d.ticker)        ticker        = d.ticker;
+        if (d.t0Date)        t0Date        = d.t0Date;
+        if (d.spyClose)      spyClose      = d.spyClose;
+        if (d.spyEma50)      spyEma50      = d.spyEma50;
+        if (d.vix)           vix           = d.vix;
+        if (d.d0H)           d0H           = d.d0H;
+        if (d.d0L)           d0L           = d.d0L;
+        if (d.d0C)           d0C           = d.d0C;
+        if (d.ema21)         ema21         = d.ema21;
+        if (d.ema50)         ema50         = d.ema50;
+        if (d.atr14)         atr14         = d.atr14;
+        if (d.minRangePrev6) minRangePrev6 = d.minRangePrev6;
+        if (d.high7)         high7         = d.high7;
+        if (d.low7)          low7          = d.low7;
+        if (d.capital)       capital       = d.capital;
+      }
+    }
+    // 2. Автоподстановка SPY/VIX из маркет-данных за этот день
+    const mkt = loadMarketData(t0Date);
+    if (mkt) {
+      if (!spyClose && mkt.spyClose !== undefined) spyClose = String(mkt.spyClose);
+      if (!spyEma50 && mkt.spyEma50 !== undefined) spyEma50 = String(mkt.spyEma50);
+      if (!vix      && mkt.vix      !== undefined) vix      = String(mkt.vix);
+    }
+    calc();
+  });
+
+  // Автосохранение черновика (только для new)
+  $effect(() => {
+    if (isEdit) return;
+    saveDraft(draftKey, {
+      ticker, t0Date, spyClose, spyEma50, vix,
+      d0H, d0L, d0C, ema21, ema50, atr14,
+      minRangePrev6, high7, low7, capital
+    });
+  });
+
+  function resetDraft() {
+    if (!confirm('Очистить все поля и сбросить черновик?')) return;
+    clearDraft(draftKey);
+    ticker = '';
+    spyClose = ''; spyEma50 = ''; vix = '';
+    d0H = ''; d0L = ''; d0C = '';
+    ema21 = ''; ema50 = ''; atr14 = '';
+    minRangePrev6 = ''; high7 = ''; low7 = '';
+    capital = '50000';
+    preview = null; errors = []; warnings = [];
+    // Восстанавливаем market data
+    const mkt = loadMarketData(t0Date);
+    if (mkt) {
+      if (mkt.spyClose !== undefined) spyClose = String(mkt.spyClose);
+      if (mkt.spyEma50 !== undefined) spyEma50 = String(mkt.spyEma50);
+      if (mkt.vix      !== undefined) vix      = String(mkt.vix);
+    }
+  }
 
   const clr = (ok: boolean) => ok ? 'var(--color-acc)' : 'var(--color-acc2)';
 </script>
@@ -218,6 +294,7 @@
     {/if}
 
     <div class="ar">
+      {#if !isEdit}<button onclick={resetDraft} type="button" title="Очистить черновик">↻ Сбросить</button>{/if}
       <button onclick={onClose}>Отмена</button>
       <button onclick={save} disabled={!preview?.v?.valid || preview?.entry?.excluded || saving} class="btn-p">
         {saving ? 'Сохранение...' : isEdit ? 'Сохранить' : 'Добавить'}

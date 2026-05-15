@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     parseNum,
     calcEventD0Metrics,
@@ -7,6 +8,7 @@
   } from '$lib/strategies/event_continuation';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
@@ -136,6 +138,7 @@
           payload
         });
       }
+      clearDraft(draftKey);
       onAdded();
       onClose();
     } catch (e: any) {
@@ -149,6 +152,46 @@
   $effect(() => {
     if (isEdit && !preview) calc();
   });
+
+  // ─── Draft ───
+  const draftKey = isEdit ? `event_edit_${editCandidate?.id}` : 'event_new';
+  onMount(() => {
+    if (!isEdit) {
+      const d = loadDraft<any>(draftKey);
+      if (d) {
+        if (d.ticker)   ticker   = d.ticker;
+        if (d.d0Date)   d0Date   = d.d0Date;
+        if (d.prevC)    prevC    = d.prevC;
+        if (d.d0O)      d0O      = d.d0O;
+        if (d.d0H)      d0H      = d.d0H;
+        if (d.d0L)      d0L      = d.d0L;
+        if (d.d0C)      d0C      = d.d0C;
+        if (d.d0V)      d0V      = d.d0V;
+        if (d.avgVol20) avgVol20 = d.avgVol20;
+        if (d.atr14)    atr14    = d.atr14;
+        if (d.high10d)  high10d  = d.high10d;
+        if (d.low10d)   low10d   = d.low10d;
+        if (d.riskAmt)  riskAmt  = d.riskAmt;
+      }
+    }
+    calc();
+  });
+  $effect(() => {
+    if (isEdit) return;
+    saveDraft(draftKey, {
+      ticker, d0Date, prevC, d0O, d0H, d0L, d0C, d0V,
+      avgVol20, atr14, high10d, low10d, riskAmt
+    });
+  });
+  function resetDraft() {
+    if (!confirm('Очистить все поля и сбросить черновик?')) return;
+    clearDraft(draftKey);
+    ticker = ''; prevC = '';
+    d0O = ''; d0H = ''; d0L = ''; d0C = ''; d0V = '';
+    avgVol20 = ''; atr14 = ''; high10d = ''; low10d = '';
+    riskAmt = '100';
+    preview = null; errors = []; warnings = [];
+  }
 
   const fmtPct = (v: number) => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
   const clr = (ok: boolean) => ok ? 'var(--color-acc)' : 'var(--color-acc2)';
@@ -230,6 +273,7 @@
     {/if}
 
     <div class="ar">
+      {#if !isEdit}<button onclick={resetDraft} type="button" title="Очистить черновик">↻ Сбросить</button>{/if}
       <button onclick={onClose}>Отмена</button>
       <button onclick={save} disabled={!preview?.m?.direction || saving || errors.length > 0} class="btn-p">
         {saving ? 'Сохранение...' : isEdit ? 'Сохранить' : 'Добавить'}

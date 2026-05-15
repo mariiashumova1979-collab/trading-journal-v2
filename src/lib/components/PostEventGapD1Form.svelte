@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     parseNum, calcPEGD1Compression, calcPEGPosition
   } from '$lib/strategies/post_event_gap';
   import { updateCandidate } from '$lib/data/candidates';
   import { updateTrade } from '$lib/data/trades';
+  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { candidate, onClose, onUpdated }: {
@@ -21,6 +23,22 @@
   let d1H = $state(''), d1L = $state(''), d1C = $state(''), d1V = $state('');
   let d1Date = $state(new Date().toISOString().split('T')[0]);
   let riskAmt = $state('100');
+
+  const draftKey = `peg_d1_${candidate.id}`;
+  onMount(() => {
+    const d = loadDraft<any>(draftKey);
+    if (d) {
+      if (d.d1H)     d1H     = d.d1H;
+      if (d.d1L)     d1L     = d.d1L;
+      if (d.d1C)     d1C     = d.d1C;
+      if (d.d1V)     d1V     = d.d1V;
+      if (d.d1Date)  d1Date  = d.d1Date;
+      if (d.riskAmt) riskAmt = d.riskAmt;
+    }
+  });
+  $effect(() => {
+    saveDraft(draftKey, { d1H, d1L, d1C, d1V, d1Date, riskAmt });
+  });
 
   let result = $state<any>(null);
   let errors = $state<string[]>([]);
@@ -90,6 +108,7 @@
           await updateTrade(trade.id, { notes: newNotes });
         }
       }
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];

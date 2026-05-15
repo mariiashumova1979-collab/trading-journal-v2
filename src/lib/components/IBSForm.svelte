@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { parseNum, calcIBSD0Metrics, validateIBSD0 } from '$lib/strategies/ibs_mean_reversion';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import { saveDraft, loadDraft, clearDraft, saveMarketData, loadMarketData } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
@@ -106,6 +108,14 @@
           payload
         });
       }
+      clearDraft(draftKey);
+      const spyC = parseNum(spyClose), spyM = parseNum(spySma200);
+      if (!isNaN(spyC) || !isNaN(spyM)) {
+        saveMarketData(t0Date, {
+          ...(isNaN(spyC) ? {} : { spyClose: spyC }),
+          ...(isNaN(spyM) ? {} : { spySma200: spyM })
+        });
+      }
       onAdded(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -113,6 +123,58 @@
   }
 
   $effect(() => { if (isEdit && !preview) calc(); });
+
+  // ─── Draft + Market data ───
+  const draftKey = isEdit ? `ibs_edit_${editCandidate?.id}` : 'ibs_new';
+
+  onMount(() => {
+    if (!isEdit) {
+      const d = loadDraft<any>(draftKey);
+      if (d) {
+        if (d.ticker)    ticker    = d.ticker;
+        if (d.t0Date)    t0Date    = d.t0Date;
+        if (d.spyClose)  spyClose  = d.spyClose;
+        if (d.spySma200) spySma200 = d.spySma200;
+        if (d.d0O)       d0O       = d.d0O;
+        if (d.d0H)       d0H       = d.d0H;
+        if (d.d0L)       d0L       = d.d0L;
+        if (d.d0C)       d0C       = d.d0C;
+        if (d.sma200)    sma200    = d.sma200;
+        if (d.sma200_20) sma200_20 = d.sma200_20;
+        if (d.rsi2)      rsi2      = d.rsi2;
+        if (d.atr14)     atr14     = d.atr14;
+      }
+    }
+    const mkt = loadMarketData(t0Date);
+    if (mkt) {
+      if (!spyClose  && mkt.spyClose  !== undefined) spyClose  = String(mkt.spyClose);
+      if (!spySma200 && mkt.spySma200 !== undefined) spySma200 = String(mkt.spySma200);
+    }
+    calc();
+  });
+
+  $effect(() => {
+    if (isEdit) return;
+    saveDraft(draftKey, {
+      ticker, t0Date, spyClose, spySma200,
+      d0O, d0H, d0L, d0C, sma200, sma200_20, rsi2, atr14
+    });
+  });
+
+  function resetDraft() {
+    if (!confirm('Очистить все поля и сбросить черновик?')) return;
+    clearDraft(draftKey);
+    ticker = '';
+    spyClose = ''; spySma200 = '';
+    d0O = ''; d0H = ''; d0L = ''; d0C = '';
+    sma200 = ''; sma200_20 = ''; rsi2 = ''; atr14 = '';
+    preview = null; errors = []; warnings = [];
+    const mkt = loadMarketData(t0Date);
+    if (mkt) {
+      if (mkt.spyClose  !== undefined) spyClose  = String(mkt.spyClose);
+      if (mkt.spySma200 !== undefined) spySma200 = String(mkt.spySma200);
+    }
+  }
 
   const fmtPct = (v: number) => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
   const clr = (ok: boolean) => ok ? 'var(--color-acc)' : 'var(--color-acc2)';
@@ -189,6 +251,7 @@
     {/if}
 
     <div class="ar">
+      {#if !isEdit}<button onclick={resetDraft} type="button" title="Очистить черновик">↻ Сбросить</button>{/if}
       <button onclick={onClose}>Отмена</button>
       <button onclick={save} disabled={!preview?.v?.valid || saving} class="btn-p">
         {saving ? 'Сохранение...' : isEdit ? 'Сохранить' : 'Добавить'}

@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { parseNum, calcIBSEntry, checkD1Adverse } from '$lib/strategies/ibs_mean_reversion';
   import { updateCandidate } from '$lib/data/candidates';
   import { updateTrade } from '$lib/data/trades';
+  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { candidate, onClose, onUpdated }: {
@@ -22,6 +24,23 @@
   let closeD1   = $state('');
   let d1Date    = $state(new Date().toISOString().split('T')[0]);
   let mode      = $state<'gap_check' | 'd1_check'>('gap_check');
+
+  const draftKey = `ibs_d1_${candidate.id}`;
+  onMount(() => {
+    const d = loadDraft<any>(draftKey);
+    if (d) {
+      if (d.capital) capital = d.capital;
+      if (d.openD1)  openD1  = d.openD1;
+      if (d.highD1)  highD1  = d.highD1;
+      if (d.lowD1)   lowD1   = d.lowD1;
+      if (d.closeD1) closeD1 = d.closeD1;
+      if (d.d1Date)  d1Date  = d.d1Date;
+      if (d.mode)    mode    = d.mode;
+    }
+  });
+  $effect(() => {
+    saveDraft(draftKey, { capital, openD1, highD1, lowD1, closeD1, d1Date, mode });
+  });
 
   let result    = $state<any>(null);
   let errors    = $state<string[]>([]);
@@ -93,6 +112,7 @@
           payload: { ...payload, d1_date: d1Date, d1_note: result.note }
         });
       }
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
@@ -115,6 +135,7 @@
           await updateTrade(trade.id, { notes: (trade.notes || '') + '\n' + note });
         }
       }
+      clearDraft(draftKey);
       onUpdated(); onClose();
     } catch (e: any) {
       errors = ['Ошибка: ' + (e.message || String(e))];
