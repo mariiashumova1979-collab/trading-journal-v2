@@ -3,6 +3,7 @@
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
   import { calcEventPosition } from '$lib/strategies/event_continuation';
   import type { Candidate } from '$lib/types';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
   import EventForm from '$lib/components/EventForm.svelte';
   import EventD1Form from '$lib/components/EventD1Form.svelte';
   import TradeForm from '$lib/components/TradeForm.svelte';
@@ -113,6 +114,86 @@
     Risk/ATR &gt; 1.2 · Overnight gap &gt; 2×ATR ·
     SPY падает &gt; −1% · D2 close ниже entry (LONG) → закрыть на аукционе
   </div>
+
+  <WorkflowGuide
+    strategyId="event_continuation"
+    sections={[
+      {
+        title: 'Вечером D0 — после event-дня',
+        steps: [
+          'Сканер (Finviz / TradingView): **Gap > 4% · Volume > 2.5×AvgVol · Close near high/low · Range > 1.5×ATR**',
+          'Отбери **максимум 5 кандидатов**',
+          'Исключи: biotech FDA · low float < 50M · earnings tomorrow · spread > 0.3% · ATR > 12%',
+          'Нажми **+ Добавить D0**, введи: Close D-1 · OHLCV D0 · ATR14 · AvgVol20 · High 10D · Low 10D',
+          'Система валидирует все 5 условий и определит направление (LONG/SHORT) или сообщит "НЕТ СИГНАЛА"'
+        ]
+      },
+      {
+        title: 'D0 LONG core conditions',
+        steps: [
+          '**Gap Up ≥ +4%** (Open D0 vs Close D-1)',
+          '**Day Range ≥ 1.5×ATR14**',
+          '**Volume ≥ 2.5× AvgVol20**',
+          '**ClosePosition ≥ 0.75** — закрытие в верхних 25% дня',
+          '**Close > High10D** — пробой 10-дневного максимума'
+        ]
+      },
+      {
+        title: 'Вечером D+1 — Compression check',
+        steps: [
+          'Нажми **+ D1** на кандидате со статусом "Ждём D1"',
+          'Введи **High / Low / Close / Volume D1**',
+          'Система проверит compression:',
+          '  • **Vol D1 ≤ 0.7× Vol D0** (объём снизился)',
+          '  • **Low D1 > Midpoint D0** (LONG, не пробил середину D0)',
+          '  • **Close D1 > Midpoint D0** (закрытие выше середины)',
+          '🟢 Compression **OK** → статус READY_ENTRY · Entry/Stop рассчитаны от High/Low D1',
+          '🔴 Compression **FAIL** → статус REJECTED, сетап отменён'
+        ]
+      },
+      {
+        title: 'Параметры сделки D+2',
+        steps: [
+          '**Entry** = High D1 + 0.1×ATR (LONG) или Low D1 − 0.1×ATR (SHORT)',
+          '**Stop** = Low D1 − 0.2×ATR (LONG) или High D1 + 0.2×ATR (SHORT)',
+          '**Risk/ATR должен быть ≤ 1.2** — иначе сделка не рекомендована',
+          '**T1** = +1R (50% позиции, стоп в BE)',
+          '**T2** = +3R · **Time stop**: D+5'
+        ]
+      },
+      {
+        title: 'Утро D+2 — Перед открытием',
+        steps: [
+          'Проверь **SPY/QQQ futures** · если SPY падает > -1% → не входить (LONG)',
+          'Проверь **premarket**: акция держит D1 high/low?',
+          'Проверь **relative strength** vs SPY',
+          'Если всё ок → нажми **+ Сделка** → ввести Entry (Buy Stop / Sell Stop)',
+          '**К концу D+2**: цена должна закрыться выше Entry (LONG). Если нет — закрыть на MOC'
+        ]
+      },
+      {
+        title: 'D+2..D+5 управление',
+        steps: [
+          'При **+1R** → закрой 50%, стоп в **breakeven**',
+          'Финальный выход (первый из):',
+          '  • Close ниже Low предыдущего дня (LONG)',
+          '  • 3 дня после входа',
+          '  • +3R',
+          'На закрытии **D+5** — Time stop, закрыть остаток MOC'
+        ]
+      },
+      {
+        title: 'НЕ ДЕЛАТЬ',
+        steps: [
+          'Не догонять после gap > 2×ATR',
+          'Не входить внутри range',
+          'Не брать late-day breakout',
+          'Не усреднять',
+          'Не переносить дальше D+5'
+        ]
+      }
+    ]}
+  />
 
   {#if loading}
     <div class="state">Загрузка...</div>

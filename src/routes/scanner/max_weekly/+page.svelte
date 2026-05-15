@@ -6,6 +6,7 @@
 
   import { insertCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
 
   interface TickerResult {
     ticker: string;
@@ -405,6 +406,77 @@
       <div>После T1: стоп в безубыток</div>
     </div>
   </div>
+
+  <WorkflowGuide
+    strategyId="max_weekly"
+    sections={[
+      {
+        title: 'Пятница вечером — Запуск скана',
+        steps: [
+          'После закрытия US рынка (23:00 EET / 16:00 EST) открой страницу **MAX Weekly**',
+          'Введи **Капитал $** (для расчёта размера позиций)',
+          'Нажми **🔍 Запустить скан** · Polygon.io скачает 25 торговых дней (~5 минут)',
+          'Дождись завершения · увидишь **TOP-3 SHORT** и **TOP-3 LONG** кандидатов',
+          'Нажми **💾 Сохранить топ-N** (или 💾 на каждой карточке) — кандидаты пойдут в Supabase'
+        ]
+      },
+      {
+        title: 'Логика сигнала',
+        steps: [
+          '**SHORT (down-lottery)**: MAX_pct ≥ 90 · Return_pct ≥ 80 · VolSpike ≥ 1.5× · Close < 52wkH × 0.98',
+          '**LONG (зеркально)**: MIN_pct ≤ 10 · Return_pct ≤ 20 · VolSpike ≥ 1.5× · Close > 52wkL × 1.02',
+          'Общие фильтры: **ADV20 ≥ $10M · Close ≥ $10**'
+        ]
+      },
+      {
+        title: 'Понедельник утром — Вход',
+        steps: [
+          'Открой **MW Кандидаты** (вкладка 📋 в шапке)',
+          'Для каждого WAITING_OPEN кандидата нажми **+ Открыть сделку**',
+          'Введи **Open price** понедельника',
+          '🟢 **Gap OK** → Entry/Stop/T1/T2 пересчитаны от Open',
+          '🔴 **GAP CANCEL**: SHORT Open ≥ Close×1.04, LONG Open ≤ Close×0.96 → кнопка "Пометить GAP CANCEL"',
+          'Размер позиции: 0.8% капитала / стоп · max 10% капитала'
+        ]
+      },
+      {
+        title: 'Параметры сделки (автоматически)',
+        steps: [
+          '**Stop** = Entry ± min(2×ATR14, 10%)',
+          '**T1** = Entry ± 1.5×ATR (60% позиции)',
+          '**T2** = Entry ± 2×ATR (40%)',
+          '**Time stop**:',
+          '  • **LONG**: D+3 (среда)',
+          '  • **SHORT**: D+5 (пятница)'
+        ]
+      },
+      {
+        title: 'Управление LONG позицией (докрутка)',
+        steps: [
+          '**D+1 EOD exit**: если Close D+1 ≤ Entry **ИЛИ** Close D+1 < Open D+1 (красная свеча) → закрыть всю позицию MOC',
+          'Иначе позиция остаётся, обычные правила',
+          'После **T1 (1.5×ATR)**: trailing stop = MAX(текущий stop, Low вчерашнего дня)',
+          '**Time stop D+3**: закрыть в среду MOC'
+        ]
+      },
+      {
+        title: 'Управление SHORT позицией',
+        steps: [
+          'После **T1 (1.5×ATR)**: стоп в **breakeven** (Entry)',
+          '**T2 (2×ATR)**: закрыть остаток',
+          '**Time stop D+5**: закрыть в пятницу MOC'
+        ]
+      },
+      {
+        title: 'Перед каждой сделкой проверь',
+        steps: [
+          '**Earnings ±5 дней** — нет ли отчёта в окне удержания',
+          '**Для SHORT**: акция доступна в шорт в Freedom24',
+          '**Pre-market gap** не превышает порог отмены'
+        ]
+      }
+    ]}
+  />
 
   {#if scanning || allResults.length > 0}
     <div class="scan-status">
