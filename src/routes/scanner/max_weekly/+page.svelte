@@ -5,6 +5,7 @@
   // 25 торговых дней = 25 запросов = ~5 минут (free tier 5/min)
 
   import { insertCandidate } from '$lib/data/candidates';
+  import { findCachedDates, loadBarsForDates, saveBarsForDate, cleanupOldBars } from '$lib/data/polygonCache';
   import { user } from '$lib/stores/auth';
   import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
 
@@ -144,7 +145,13 @@
     return new Set(list.map(t => t.toUpperCase()));
   }
 
-  // ─── Главный цикл ───
+  // ─── Главный цикл с кэшем ───
+  // Логика:
+  // 1. Считаем какие дни нужны (последние 25 торговых дней, исключая сегодня)
+  // 2. Спрашиваем Supabase какие из них уже есть
+  // 3. Качаем с Polygon только недостающие
+  // 4. Загружаем все дни из кэша
+  // 5. Считаем метрики локально
   async function runScan() {
     scanning = true; aborted = false; done = false;
     allResults = []; ranked = []; progress = 0; errors = 0; scanLog = [];
@@ -157,17 +164,38 @@
       scanning = false; return;
     }
 
+    // Чистка старых баров (TTL 90 дней)
+    scanLog = ['🧹 Очистка кэша старше 90 дней...'];
+    try {
+      const deleted = await cleanupOldBars();
+      if (deleted > 0) scanLog = [`🧹 Удалено ${deleted} устаревших баров`, ...scanLog.slice(0, 7)];
+    } catch (e) { /* ignore */ }
+
+    // Получаем список дней
     const days = getTradingDays(DAYS_HISTORY);
     total = days.length;
-    scanLog = [`Загружаю ${days.length} торговых дней через Polygon...`];
 
-    // Накапливаем по тикеру массив баров
-    const tickerBars = new Map<string, DailyBar[]>();
+    // Проверяем какие дни уже есть в кэше
+    scanLog = [`🔍 Проверяю кэш для ${days.length} дней...`, ...scanLog.slice(0, 7)];
+    let cachedDates: Set<string>;
+    try {
+      cachedDates = await findCachedDates(days);
+    } catch (e: any) {
+      cachedDates = new Set();
+      scanLog = ['⚠ Ошибка проверки кэша: ' + e.message, ...scanLog.slice(0, 7)];
+    }
 
-    for (let i = 0; i < days.length && !aborted; i++) {
-      const date = days[i];
-      progress = i + 1;
-      scanLog = [`День ${i + 1}/${days.length} (${date})...`, ...scanLog.slice(0, 7)];
+    const missingDates = days.filter(d => !cachedDates.has(d));
+    scanLog = [
+      `📦 В кэше: ${cachedDates.size}/${days.length} дней · Качаю: ${missingDates.length}`,
+      ...scanLog.slice(0, 7)
+    ];
+
+    // Качаем только недостающие дни
+    for (let i = 0; i < missingDates.length && !aborted; i++) {
+      const date = missingDates[i];
+      progress = cachedDates.size + i + 1;
+      scanLog = [`📡 Polygon ${i + 1}/${missingDates.length} (${date})...`, ...scanLog.slice(0, 7)];
 
       try {
         const res = await fetch(`/api/polygon-scan?date=${date}`);
@@ -177,10 +205,8 @@
         if (data.rate_limited) {
           scanLog = [`⏳ Rate limit на ${date}, жду 60 сек...`, ...scanLog.slice(0, 7)];
           await new Promise(r => setTimeout(r, 60000));
-          i--; // retry этот же день
-          continue;
+          i--; continue;
         }
-
         if (data.error) {
           scanLog = [`✗ ${date}: ${data.error}`, ...scanLog.slice(0, 7)];
           errors++;
@@ -188,23 +214,20 @@
         }
 
         const results: any[] = data.results ?? [];
-        let kept = 0;
-        for (const r of results) {
-          const ticker = (r.T as string).toUpperCase();
-          if (!universe.has(ticker)) continue;
-          if (!tickerBars.has(ticker)) tickerBars.set(ticker, []);
-          tickerBars.get(ticker)!.push({
-            o: r.o, h: r.h, l: r.l, c: r.c, v: r.v
-          });
-          kept++;
+        // Сохраняем в кэш (все ~10000 тикеров)
+        if (results.length > 0) {
+          const bars = results.map(r => ({
+            ticker: (r.T as string).toUpperCase(),
+            o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c), v: Number(r.v)
+          })).filter(b => !isNaN(b.c) && b.c > 0);
+          const saved = await saveBarsForDate(date, bars);
+          scanLog = [
+            `Polygon ${i + 1}/${missingDates.length} (${date}): ${results.length} акций · сохранено ${saved}`,
+            ...scanLog.slice(0, 7)
+          ];
         }
-        scanLog = [
-          `День ${i + 1}/${days.length} (${date}): ${results.length} акций, ${kept} из universe`,
-          ...scanLog.slice(0, 7)
-        ];
 
-        // Пауза между запросами (rate limit)
-        if (i < days.length - 1 && !aborted) {
+        if (i < missingDates.length - 1 && !aborted) {
           await new Promise(r => setTimeout(r, REQ_INTERVAL_MS));
         }
       } catch (e: any) {
@@ -214,17 +237,29 @@
       }
     }
 
-    // Финальный расчёт метрик
-    scanLog = [`Расчёт метрик для ${tickerBars.size} тикеров...`, ...scanLog.slice(0, 7)];
+    // Загружаем все дни из кэша
+    scanLog = [`📥 Чтение ${days.length} дней из кэша...`, ...scanLog.slice(0, 7)];
+    let tickerBars: Map<string, any[]>;
+    try {
+      tickerBars = await loadBarsForDates(days);
+    } catch (e: any) {
+      scanLog = ['⚠ Ошибка чтения кэша: ' + e.message, ...scanLog.slice(0, 7)];
+      scanning = false; done = true; return;
+    }
+
+    // Фильтрация по universe и расчёт метрик
+    scanLog = [`🧮 Расчёт метрик для ${universe.size} тикеров Russell 1000...`, ...scanLog.slice(0, 7)];
     const results: TickerResult[] = [];
     for (const [ticker, bars] of tickerBars) {
+      if (!universe.has(ticker)) continue;
       const m = calcMetrics(ticker, bars);
       if (m) results.push(m);
     }
     allResults = results;
     ranked = computeRankings(results);
 
-    scanLog = [`✓ Скан завершён: ${results.length} тикеров`, ...scanLog.slice(0, 7)];
+    progress = total;
+    scanLog = [`✓ Скан завершён: ${results.length} тикеров (${cachedDates.size} дней из кэша)`, ...scanLog.slice(0, 7)];
     scanning = false; done = true;
   }
 
