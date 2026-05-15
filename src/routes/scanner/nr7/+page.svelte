@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
   import type { Candidate } from '$lib/types';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
   import NR7Form from '$lib/components/NR7Form.svelte';
   import NR7D1Form from '$lib/components/NR7D1Form.svelte';
   import TradeForm from '$lib/components/TradeForm.svelte';
@@ -115,6 +116,66 @@
     <b>Risk:</b> 1% капитала ·
     <b>D+1 при gap:</b> Open за пределами триггера → ждать отката · gap &gt; 1×ATR → skip
   </div>
+
+  <WorkflowGuide
+    strategyId="nr7"
+    sections={[
+      {
+        title: 'Вечером (T0) — 20-30 мин',
+        steps: [
+          'Открой TradingView с **SPY** → определи режим (Close vs EMA50)',
+          'Открой **VIX** → если ≥ 35, **пропусти всю сессию**',
+          'На каждом тикере S&P 500 / NDX проверь:',
+          '  • **NR7**: текущий день — наименьший range из последних 7',
+          '  • **Тренд**: Close > EMA21 > EMA50 (LONG) или Close < EMA21 < EMA50 (SHORT)',
+          '  • **Close vs Mid7**: ≥ Mid7 (LONG) или ≤ Mid7 (SHORT)',
+          '  • **Range/ATR < 0.75** (сжатие)',
+          'Нажми **+ Добавить T0**, введи: SPY/VIX · OHLC T0 (только H/L/C) · EMA21, EMA50, ATR14 · High7, Low7, min Range[-6..-1]',
+          'Система рассчитает BuyStop/SellStop, Stop, T1, T2, Shares и **исключит сетап если StopDistance > 2×ATR**'
+        ]
+      },
+      {
+        title: 'Утром D+1 — 5-10 мин',
+        steps: [
+          'Нажми **D+1** → вкладка `1. Утро · Gap check` → введи Open D+1',
+          '🟢 **STOP_ORDER**: Open ≤ BuyStop — выставь Buy Stop ордер в Freedom24 на цене триггера',
+          '🟡 **WAIT_PULLBACK**: Open > BuyStop — не входи на open, жди отката к High_T0',
+          '🔴 **GAP_FAR**: Open >> BuyStop (gap > 1×ATR) — **пропустить сетап**',
+          'После выставления ордера нажми "Сохранить" чтобы запомнить заметку'
+        ]
+      },
+      {
+        title: 'В течение дня D+1',
+        steps: [
+          'Если до **15:45 EST** stop-ордер не сработал → **D+1 → "Итог D+1" → "Не сработал (15:45 EST)"**',
+          'Кандидат пометится как **REJECTED**'
+        ]
+      },
+      {
+        title: 'Вечером D+1 (если ордер сработал)',
+        steps: [
+          'Открой **D+1 → "2. Итог D+1"** → введи фактическую цену исполнения',
+          '"Сохранить и → + Сделка"',
+          'Затем **+ Сделка** в таблице — TradeForm всё заполнится автоматически'
+        ]
+      },
+      {
+        title: 'Вечером D+2 (Adverse check)',
+        steps: [
+          'Нажми **D+2 ✓** → вкладка `3. D+2 Adverse check` → введи Close D+2',
+          '🔴 Close ≤ Entry (LONG) или Close ≥ Entry (SHORT) → **⚠ ЗАКРЫТЬ ПО CLOSE D+2**',
+          '🟢 Close на правильной стороне Entry → позиция остаётся',
+          'Результат пишется в notes сделки · таблица подсветит красным строки где D+2 adverse сработал'
+        ]
+      },
+      {
+        title: 'D+5 — Time stop',
+        steps: [
+          'Закрыть позицию по рынку независимо от состояния'
+        ]
+      }
+    ]}
+  />
 
   {#if loading}
     <div class="state">Загрузка...</div>

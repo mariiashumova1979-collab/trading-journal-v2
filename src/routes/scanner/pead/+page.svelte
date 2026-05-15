@@ -3,6 +3,7 @@
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
   import { calcPEGPosition } from '$lib/strategies/post_event_gap';
   import type { Candidate } from '$lib/types';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
   import PostEventGapForm from '$lib/components/PostEventGapForm.svelte';
   import PostEventGapD1Form from '$lib/components/PostEventGapD1Form.svelte';
   import TradeForm from '$lib/components/TradeForm.svelte';
@@ -104,6 +105,95 @@
     <b>Position:</b> 0.5% риск, max 2% open risk, max 4 позиций ·
     <b>D2 validation:</b> Close D2 на правильной стороне Entry, иначе exit MOC
   </div>
+
+  <WorkflowGuide
+    strategyId="pead"
+    sections={[
+      {
+        title: 'Вечером D0 — Сканер',
+        steps: [
+          'Universe: US common stocks · Price $20-300 · MarketCap > $10B · AvgVol20 > 3M · ATR/Close 2-8% · Spread < 0.20%',
+          'Исключить: Biotech · Chinese ADR · Meme · Low float < 50M · Dividend gaps · Earnings tomorrow',
+          'Сканер: **Gap > 4% · RVOL > 3 · Range > 1.5×ATR · Close near high/low**',
+          'Оставь **максимум 10 тикеров** для дальнейшего анализа'
+        ]
+      },
+      {
+        title: 'Вечером D0 — Добавление',
+        steps: [
+          'Проверь **Market filter**:',
+          '  • LONG: SPY > EMA20 · QQQ > EMA20 · VIX < 25',
+          '  • SHORT: SPY < EMA20 · QQQ < EMA20',
+          'Нажми **+ Добавить D0**, введи: Close D-1 · OHLCV D0 · ATR14 · AvgVol20',
+          'Также: HighClose 10D / LowClose 10D · HighClose 20D / LowClose 20D',
+          'Market regime: чекбоксы SPY/QQQ/Sector vs EMA20 · значение VIX',
+          'Система рассчитает **D0 Quality Score (0..6)** — нужен **≥ 3**'
+        ]
+      },
+      {
+        title: 'D0 Score components (+1 за каждое)',
+        steps: [
+          'Gap ≥ ±6% (вместо +4%)',
+          'RVOL ≥ 5 (вместо 3)',
+          'Range ≥ 2×ATR (вместо 1.5)',
+          'ClosePosition ≥ 0.85 / ≤ 0.15 (вместо 0.70/0.30)',
+          'Close break **20D** (вместо 10D)',
+          'Sector ETF на правильной стороне EMA20'
+        ]
+      },
+      {
+        title: 'Вечером D+1 — Compression check',
+        steps: [
+          'Из 10 кандидатов нажми **+ D1** и введи H/L/C/V D1',
+          'Core D1 (все должны пройти): Vol ≤ 0.70×D0 · Range ≤ 0.75×D0 · Retrace ≤ 35% · Low D1 > Low D0 (LONG) · Close D1 > Mid D0',
+          'Система посчитает **Compression Score (0..6)** — нужен **≥ 2**',
+          '🟢 Compression OK → статус READY_ENTRY · Entry/Stop сохранены',
+          '🔴 Compression FAIL → REJECTED',
+          'Оставь **максимум 3 сделки** на завтра'
+        ]
+      },
+      {
+        title: 'Compression Score (+1 за каждое)',
+        steps: [
+          'Inside day (D1 внутри D0)',
+          'Volume D1 ≤ 0.50×D0',
+          'Range D1 ≤ 0.60×D0',
+          'Retracement ≤ 25%',
+          'Close D1 в верхней 1/3 range (LONG) или нижней 1/3 (SHORT)',
+          'Inside day + Retracement ≤ 20% (дополнительный бонус)'
+        ]
+      },
+      {
+        title: 'Утро D+2 — Вход',
+        steps: [
+          'Перед открытием проверь SPY/QQQ · premarket · news headline · earnings calendar',
+          'Нажми **+ Сделка** на READY_ENTRY кандидате',
+          '**Entry** = High D1 + 0.10×ATR (LONG) или Low D1 − 0.10×ATR (SHORT)',
+          '**Stop** = Low D1 − 0.20×ATR (LONG) или High D1 + 0.20×ATR (SHORT)',
+          'Поставь stop-ордер в Freedom24 на цене Entry',
+          '**Risk** = 0.5% капитала на сделку · Max open risk 2% · Max 4 позиций'
+        ]
+      },
+      {
+        title: 'Вечер D+2 — Validation',
+        steps: [
+          '🔴 LONG: Close D2 ≤ Entry → **закрыть всю позицию MOC**',
+          '🔴 SHORT: Close D2 ≥ Entry → **закрыть всю позицию MOC**',
+          '🟢 Иначе — позиция остаётся'
+        ]
+      },
+      {
+        title: 'Управление D+3..D+5',
+        steps: [
+          'При **+1.5R** → закрой 50%, перенеси стоп остатка в **breakeven**',
+          'Финальный выход (первое событие):',
+          '  • **+2.2R** → закрыть остаток',
+          '  • **Close D+5** → закрыть всё',
+          '  • Structural: Close < Low предыдущего дня (LONG)'
+        ]
+      }
+    ]}
+  />
 
   {#if loading}
     <div class="state">Загрузка...</div>

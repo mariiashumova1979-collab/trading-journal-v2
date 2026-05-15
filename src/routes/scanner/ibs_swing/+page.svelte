@@ -3,6 +3,7 @@
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
   import { calcIBSEntry } from '$lib/strategies/ibs_mean_reversion';
   import type { Candidate } from '$lib/types';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
   import IBSForm from '$lib/components/IBSForm.svelte';
   import IBSD1Form from '$lib/components/IBSD1Form.svelte';
   import TradeForm from '$lib/components/TradeForm.svelte';
@@ -122,6 +123,70 @@
     <b>Режим рынка:</b> |SPY − SMA200| ≤ 0.1% → новые сделки запрещены ·
     <b>Universe:</b> S&P 500 + Nasdaq-100 · Close ≥ $10 · ADV20 ≥ $20M · History ≥ 250 дней
   </div>
+
+  <WorkflowGuide
+    strategyId="ibs_swing"
+    sections={[
+      {
+        title: 'Вечером (T0) — 15-20 мин',
+        steps: [
+          'Проверь SPY относительно SMA200: |SPY − SMA200| > 0.1% (иначе сделки запрещены)',
+          '**LONG разрешён** если SPY Close > SMA200(SPY), **SHORT** — если меньше',
+          'Просканируй **S&P 500 + Nasdaq-100** с фильтрами: Close ≥ $10, ADV20 ≥ $20M, History ≥ 250 дней',
+          'На каждом тикере проверь:',
+          '  • **Тренд по SMA200**: Close > SMA200 и SMA200(сегодня) > SMA200(20 дней назад) — для LONG',
+          '  • **IBS = (Close-Low)/(High-Low)** < 0.20 (LONG) или > 0.80 (SHORT)',
+          '  • **RSI(2)** < 10 (LONG) или > 90 (SHORT)',
+          '  • **Range = High-Low < 2×ATR14**',
+          'Нажми **+ Добавить T0**, введи: SPY/SMA200 · OHLC акции · SMA200 сегодня и 20 дней назад · RSI(2) · ATR14'
+        ]
+      },
+      {
+        title: 'Утром D+1 (перед открытием) — 5 мин',
+        steps: [
+          'Нажми **D+1** на кандидате → вкладка `Утро D+1 · Gap check + Entry`',
+          'Введи ожидаемый Open D+1',
+          '🔴 **GAP CANCEL**: Open ≥ Close×1.02 (LONG) или Open ≤ Close×0.98 (SHORT) → сделку отменить',
+          '🟢 **GAP OK**: Entry/Stop/T1/T2/Shares автоматически рассчитаны',
+          'Нажми **"Сохранить и открыть сделку"** → переход в TradeForm',
+          'Войди **Market-at-Open** в Freedom24, сразу выставь Stop Loss'
+        ]
+      },
+      {
+        title: 'Параметры сделки (автоматически)',
+        steps: [
+          '**Entry** = Open D+1',
+          '**StopDistance** = min(1.5×ATR14, 6%×Entry)',
+          '**Stop** = Entry ∓ StopDistance',
+          '**T1** = Entry ± 1×ATR14 (50%, после T1 — стоп в BE)',
+          '**T2** = Entry ± 2×ATR14 (закрыть остаток)',
+          '**Risk** = 1% капитала',
+          '**Trailing после T1**: Close ∓ 1×ATR14 (только в сторону уменьшения риска)'
+        ]
+      },
+      {
+        title: 'Вечером D+1 — Adverse check',
+        steps: [
+          'Нажми **D+1 check** → вкладка `Вечер D+1 · Adverse check`',
+          'Введи **High / Low / Close D+1**',
+          '🔴 **LONG**: High D+1 − Entry < 0.5×ATR → закрыть всё по Close D+1',
+          '🔴 **SHORT**: Entry − Low D+1 < 0.5×ATR → закрыть всё по Close D+1',
+          '🟢 Иначе позиция остаётся, обычные правила управления',
+          'Таблица подсветит красным строки где D+1 adverse check сработал'
+        ]
+      },
+      {
+        title: 'Управление D+2..D+5',
+        steps: [
+          'Следи за T1/T2 и trailing stop',
+          'При **Target 1**: закрой 50%, перенеси стоп остатка в Entry (BE)',
+          'Trailing для остатка: Close ± 1×ATR (стоп только в сторону безопасности)',
+          'При **Target 2**: закрой оставшиеся 50%',
+          'На закрытии **D+5** — закрыть весь остаток по рынку (Time stop)'
+        ]
+      }
+    ]}
+  />
 
   {#if loading}
     <div class="state">Загрузка...</div>

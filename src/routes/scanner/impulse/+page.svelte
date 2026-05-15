@@ -3,12 +3,14 @@
   import { listCandidates, deleteCandidate, subscribeCandidates } from '$lib/data/candidates';
   import { calculatePosition } from '$lib/strategies/impulse';
   import type { Candidate } from '$lib/types';
+  import WorkflowGuide from '$lib/components/WorkflowGuide.svelte';
   import ImpulseForm from '$lib/components/ImpulseForm.svelte';
   import D1Form from '$lib/components/D1Form.svelte';
   import TradeForm from '$lib/components/TradeForm.svelte';
 
   let candidates = $state<Candidate[]>([]);
   let showAddForm = $state(false);
+  let editCand = $state<Candidate | null>(null);
   let d1Candidate = $state<Candidate | null>(null);
   let tradeCandidate = $state<Candidate | null>(null);
   let loading = $state(true);
@@ -80,11 +82,17 @@
   function canOpenTrade(s: string) {
     return s === 'WAITING_D1' || s === 'READY_ENTRY' || s === 'WAITING_OPEN';
   }
+
+  function canEdit(s: string) {
+    // Редактирование запрещено только для ENTERED (сделка уже открыта)
+    return s !== 'ENTERED';
+  }
 </script>
 
 <svelte:head>
   <title>Impulse Scanner · Trading Journal</title>
 </svelte:head>
+
 <div class="page">
   <div class="head">
     <div>
@@ -102,9 +110,74 @@
       <span style="margin-left:12px">• <b>Weak Pullback (LONG):</b> L1 &gt; Mid_D0 AND retracement &lt; 50% AND C1 &gt; Mid_D0 (для SHORT зеркально)</span><br>
       <span style="margin-left:12px">• <b>Compression:</b> Range1/Range_D0 &lt; 0.5 AND |C1−C_D0| &lt; 0.3·Range_D0</span>
     </div>
-    <div><b>Entry D+2 (LONG):</b> High_D0 + 0.1×ATR · <b>Stop:</b> Low_D0 − 0.2×ATR</div>
-    <div><b>Entry D+2 (SHORT):</b> Low_D0 − 0.1×ATR · <b>Stop:</b> High_D0 + 0.2×ATR</div>
+    <div><b>Entry D+2 (после D+1):</b> {`{High_D+1}`} (LONG) или {`{Low_D+1}`} (SHORT) · <b>Trail stop:</b> max/min(Stop_D0, Low/High_D+1)</div>
+    <div><b>Stop D0 (LONG):</b> Low_D0 − 0.2×ATR · <b>SHORT:</b> High_D0 + 0.2×ATR</div>
   </div>
+
+  <WorkflowGuide
+    strategyId="impulse"
+    sections={[
+      {
+        title: 'Вечером D0 — Поиск кандидатов',
+        steps: [
+          'Открой scanner (Finviz / TradingView) с фильтрами: **Move +5..+12% (LONG) или -5..-12% (SHORT)**',
+          'Дополнительно: **RelVol ≥ 1.5 · Close ≥ $10 · ADV20 ≥ $10M**',
+          'На каждом кандидате проверь:',
+          '  • **CLV > 0.70** для LONG (close в верхних 30%) · **CLV < 0.30** для SHORT',
+          '  • **Body > 0.50** (тело свечи > 50% диапазона)',
+          'Нажми **+ Добавить D0**, введи: D-1 Close · OHLCV D0 · ATR14 · AvgVol20'
+        ]
+      },
+      {
+        title: 'D0 валидация (автоматически)',
+        steps: [
+          'Система рассчитает: **Move %, CLV, Body, RangeATR, RelVol**',
+          'Покажет цветные ✓/✗ для каждого условия и определит направление',
+          '🟢 Все условия пройдены → статус **WAITING_D1**',
+          '🔴 Хоть одно условие не пройдено → "НЕТ СИГНАЛА" (не сохраняется)'
+        ]
+      },
+      {
+        title: 'Вечером D+1 — Pattern check',
+        steps: [
+          'Нажми **+ D1** на кандидате со статусом "Ждём D1"',
+          'Введи **OHLCV D+1**',
+          'Система определит один из трёх паттернов:',
+          '  • **Inside Day**: H1 ≤ H_D0 AND L1 ≥ L_D0',
+          '  • **Weak Pullback (LONG)**: L1 > Mid_D0, retracement < 50%, C1 > Mid_D0',
+          '  • **Compression**: Range1/Range_D0 < 0.5, |C1−C_D0| < 0.3×Range_D0',
+          '🟢 Один из паттернов найден → статус **READY_ENTRY** · Entry/Stop рассчитаны',
+          '🔴 Ни один паттерн не подошёл → статус **REJECTED**'
+        ]
+      },
+      {
+        title: 'Параметры сделки (D+2)',
+        steps: [
+          '**Entry**: High_D+1 (LONG) или Low_D+1 (SHORT) · Buy Stop / Sell Stop ордер',
+          '**Stop D0**: Low_D0 − 0.2×ATR (LONG) или High_D0 + 0.2×ATR (SHORT)',
+          '**Trail stop**: max(Stop_D0, Low_D+1) для LONG · min(Stop_D0, High_D+1) для SHORT',
+          '**T1**: +1R (50%) · **T2**: +2R · **Time stop**: D+5'
+        ]
+      },
+      {
+        title: 'Утром D+2 — Вход',
+        steps: [
+          'Нажми **+ Сделка** на READY_ENTRY кандидате',
+          'Поставь stop-ордер в Freedom24 на цене Entry',
+          'Если ордер не сработал к концу D+2 — сетап истёк, отмени',
+          'После исполнения — Stop Loss на цене Trail stop'
+        ]
+      },
+      {
+        title: 'Управление D+2..D+5',
+        steps: [
+          'При **+1R**: закрой 50%, стоп в breakeven',
+          'При **+2R**: закрой остаток',
+          'На закрытии **D+5** — Time stop, закрыть позицию MOC'
+        ]
+      }
+    ]}
+  />
 
   {#if loading}
     <div class="state">Загрузка...</div>
@@ -149,6 +222,9 @@
               <td>{c.stop !== null && c.stop !== undefined ? '$' + Number(c.stop).toFixed(2) : '—'}</td>
               <td><span style="color:{statusColor(c.status)}">{statusLabel(c.status)}</span></td>
               <td class="acts">
+                {#if canEdit(c.status)}
+                  <button onclick={() => (editCand = c)} title="Редактировать" style="font-size:9px;padding:4px 8px">✎</button>
+                {/if}
                 {#if c.status === 'WAITING_D1'}
                   <button onclick={() => (d1Candidate = c)} style="font-size:9px;padding:4px 8px">+ D+1</button>
                 {/if}
@@ -175,6 +251,14 @@
 
 {#if showAddForm}
   <ImpulseForm onClose={() => (showAddForm = false)} onAdded={load} />
+{/if}
+
+{#if editCand}
+  <ImpulseForm
+    editCandidate={editCand}
+    onClose={() => (editCand = null)}
+    onAdded={load}
+  />
 {/if}
 
 {#if d1Candidate}
