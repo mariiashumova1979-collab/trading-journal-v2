@@ -218,7 +218,7 @@
         if (results.length > 0) {
           const bars = results.map(r => ({
             ticker: (r.T as string).toUpperCase(),
-            o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c), v: Number(r.v)
+            o: Number(r.o), h: Number(r.h), l: Number(r.l), c: Number(r.c), v: Math.round(Number(r.v))
           })).filter(b => !isNaN(b.c) && b.c > 0);
           const saved = await saveBarsForDate(date, bars);
           scanLog = [

@@ -81,7 +81,7 @@ export async function saveBarsForDate(date: string, bars: Omit<DailyBar, 'date'>
   const rows = bars.map(b => ({
     date,
     ticker: b.ticker.toUpperCase(),
-    o: b.o, h: b.h, l: b.l, c: b.c, v: b.v
+    o: b.o, h: b.h, l: b.l, c: b.c, v: Math.round(b.v)
   }));
 
   // Supabase инсертит порциями
