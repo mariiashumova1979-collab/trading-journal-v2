@@ -145,7 +145,10 @@
             '─ SHORT правила ─',
             'Time stop: D+5 (пятница)',
             'После T1 (1.5×ATR, 60%): стоп в безубыток',
-            'T2: 2×ATR (40%)'
+            'T2: 2×ATR (40%)',
+            '─ D+1 EOD check (22:45 EET) ─',
+            'Close D+1 < Entry → стоп остаётся на Entry + 2×ATR',
+            'Close D+1 ≥ Entry → стоп → Close_D+1 × 1.01'
           ]
         : [];
 
@@ -293,6 +296,11 @@
           {:else}
             <div class="mw-rules">
               <div><b>Time stop:</b> D+5 (пятница) · <b>После T1:</b> стоп в безубыток</div>
+              <div style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,200,90,0.2)">
+                <b>D+1 EOD check:</b><br>
+                Close &lt; Entry → стоп остаётся (Entry + 2×ATR)<br>
+                Close ≥ Entry → стоп → Close × 1.01
+              </div>
             </div>
           {/if}
         {/if}

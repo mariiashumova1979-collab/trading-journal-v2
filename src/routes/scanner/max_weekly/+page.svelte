@@ -436,9 +436,11 @@
       <div>После T1: stop = max(текущий, Low вчер. дня)</div>
     </div>
     <div class="rule-col" style="border-color: rgba(255,107,138,0.3)">
-      <div class="rule-h" style="color:var(--color-acc2)">SHORT (без изменений)</div>
+      <div class="rule-h" style="color:var(--color-acc2)">SHORT докрутка</div>
       <div>Time stop: <b>D+5</b> (пятница)</div>
       <div>После T1: стоп в безубыток</div>
+      <div>D+1 EOD: Close ≥ Entry → стоп = Close × 1.01</div>
+      <div>D+1 EOD: Close &lt; Entry → стоп не меняем</div>
     </div>
   </div>
 
@@ -497,6 +499,13 @@
       {
         title: 'Управление SHORT позицией',
         steps: [
+          '**D+1 EOD check (22:45 EET):**',
+          '  • Close D+1 **< Entry** → стоп не меняем (остаётся Entry + 2×ATR)',
+          '  • Close D+1 **≥ Entry** → стоп → Close × 1.01 (риск сужается)',
+          'Пример: Entry $100, ATR $5, стоп $110',
+          '  • Close $98 → стоп $110 (без изменений)',
+          '  • Close $100.50 → стоп $101.51',
+          '  • Close $103 → стоп $104.03',
           'После **T1 (1.5×ATR)**: стоп в **breakeven** (Entry)',
           '**T2 (2×ATR)**: закрыть остаток',
           '**Time stop D+5**: закрыть в пятницу MOC'

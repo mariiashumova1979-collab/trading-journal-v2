@@ -184,6 +184,8 @@
                   <span class="long-rule">⚡ После T1 (1.5×ATR): trail = max(stop, Low вчер.дня)</span>
                 {:else}
                   <span>□ Time stop: D+5 (пятница)</span>
+                  <span class="long-rule">⚡ D+1 EOD (22:45 EET): если Close ≥ Entry → стоп = Close × 1.01</span>
+                  <span class="long-rule">⚡ Если Close &lt; Entry → стоп остаётся на Entry + 2×ATR</span>
                 {/if}
               </div>
             {/if}
