@@ -14,6 +14,20 @@
   const isMaxWeekly = candidate.strategy === 'max_weekly';
   const mwPayload = isMaxWeekly ? (candidate.payload as MaxWeeklyPayload) : null;
 
+  // Стратегии с уже рассчитанными entry/stop/target в кандидате
+  const isGeneric = ['ibs_swing', 'nr7', 'event_continuation', 'pead'].includes(candidate.strategy);
+  const strategyNames: Record<string, string> = {
+    ibs_swing: 'IBS Mean Reversion',
+    nr7: 'NR7 Breakout',
+    event_continuation: 'Event Continuation',
+    pead: 'Post-Event Gap'
+  };
+  const genericAtr = isGeneric ? (
+    (candidate.payload as any)?.atr14 ||
+    (candidate.payload as any)?.atr ||
+    0
+  ) : 0;
+
   let entryDate = $state(new Date().toISOString().split('T')[0]);
   let entryActual = $state(isMaxWeekly ? '' : (candidate.entry || 0).toFixed(2));
   let riskAmt = $state('100');
@@ -83,10 +97,31 @@
       }
 
       preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
+    } else if (isGeneric) {
+      // IBS / NR7 / Event / PEG — stop/target уже сохранены в кандидате
+      if (!candidate.direction || candidate.stop === null || candidate.stop === undefined) {
+        errors = ['Стоп не рассчитан — сначала заполни D+1 форму'];
+        preview = null;
+        return;
+      }
+      const stop = Number(candidate.stop);
+      const riskPerShare = Math.abs(entry - stop);
+      if (riskPerShare <= 0) { errors = ['Entry слишком близко к Stop']; preview = null; return; }
+      const shares = Math.floor(risk / riskPerShare);
+      const riskAtrRatio = genericAtr > 0 ? riskPerShare / genericAtr : 0;
+      const positionValue = shares * entry;
+      const target1 = candidate.target1 != null ? Number(candidate.target1) : (
+        candidate.direction === 'LONG' ? entry + riskPerShare : entry - riskPerShare
+      );
+      const target2 = candidate.target2 != null ? Number(candidate.target2) : (
+        candidate.direction === 'LONG' ? entry + 2 * riskPerShare : entry - 2 * riskPerShare
+      );
+      if (shares < 1) { errors = ['Слишком мало акций — увеличь риск']; preview = null; return; }
+      if (riskAtrRatio > 2.0) warnings = [`⚠ Risk/ATR = ${riskAtrRatio.toFixed(2)} > 2.0`];
+      preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
+
     } else {
       // Impulse логика
-      const { calculatePosition } = require ? undefined : undefined;
-      // Используем candidate.stop напрямую
       if (!candidate.direction || candidate.stop === null || candidate.stop === undefined) {
         errors = ['Кандидат без direction/stop'];
         preview = null;
@@ -100,10 +135,8 @@
       const positionValue = shares * entry;
       const target1 = candidate.direction === 'LONG' ? entry + riskPerShare : entry - riskPerShare;
       const target2 = candidate.direction === 'LONG' ? entry + 2 * riskPerShare : entry - 2 * riskPerShare;
-
       if (shares < 1) { errors = ['Слишком мало акций — увеличь риск']; preview = null; return; }
       if (riskAtrRatio > 1.5) warnings = [`⚠ Risk/ATR = ${riskAtrRatio.toFixed(2)} > 1.5`];
-
       preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
     }
   }
@@ -161,6 +194,18 @@
             `ATR14: ${mwPayload.atr14.toFixed(2)} | ADV20: $${(mwPayload.adv20 / 1_000_000).toFixed(1)}M`,
             ...exitRules
           ].join('\n')
+        : isGeneric
+        ? (() => {
+            const p = candidate.payload as any;
+            const name = strategyNames[candidate.strategy] || candidate.strategy;
+            const lines = [
+              `${name}: ${candidate.direction} | T0: ${candidate.signal_date}`,
+              `ATR14: ${(p?.atr14 || p?.atr || 0).toFixed(2)} | Entry: ${Number(candidate.entry || 0).toFixed(2)} | Stop: ${Number(candidate.stop || 0).toFixed(2)}`
+            ];
+            if (p?.d1_note)      lines.push(p.d1_note);
+            if (p?.d1_fill_note) lines.push(p.d1_fill_note);
+            return lines.join('\n');
+          })()
         : (() => {
             const p = candidate.payload as any;
             const base = 'D0: ' + candidate.signal_date + ' | Pattern: ' + (p?.pattern || 'N/A') + ' | ATR: ' + (p?.atr?.toFixed(2) || 'N/A');
@@ -225,6 +270,13 @@
         <div>MAX_5d: <b>{(mwPayload.max5d*100).toFixed(1)}%</b> · MAX_pct: <b>{mwPayload.maxPct.toFixed(0)}</b> · VolSpike: <b>{mwPayload.volSpike5d.toFixed(2)}x</b></div>
         <div>Gap cancel: <b style="color:var(--color-acc3)">{candidate.direction==='SHORT' ? 'Open ≥' : 'Open ≤'} ${mwPayload.gap_cancel_threshold.toFixed(2)}</b></div>
       </div>
+    {:else if isGeneric}
+      <div class="info">
+        <div>Стратегия: <b>{strategyNames[candidate.strategy] || candidate.strategy}</b> · <span style="color:{candidate.direction==='LONG'?'var(--color-acc)':'var(--color-acc2)'};font-weight:700">{candidate.direction}</span></div>
+        <div>Entry: <b>${candidate.entry != null ? Number(candidate.entry).toFixed(2) : '—'}</b> · Stop: <b style="color:var(--color-acc2)">${candidate.stop != null ? Number(candidate.stop).toFixed(2) : '—'}</b></div>
+        <div>ATR14: <b>{genericAtr > 0 ? genericAtr.toFixed(2) : '—'}</b> · T1: <b>${candidate.target1 != null ? Number(candidate.target1).toFixed(2) : '—'}</b> · T2: <b>${candidate.target2 != null ? Number(candidate.target2).toFixed(2) : '—'}</b></div>
+        {#if candidate.stop == null}<div style="color:var(--color-acc2);font-size:10px;margin-top:4px">⚠ Стоп не рассчитан — сначала заполни D+1 форму</div>{/if}
+      </div>
     {:else}
       <div class="info">
         <div>Pattern D+1: <b>{(candidate.payload as any)?.pattern || 'не подтверждён'}</b></div>
@@ -241,7 +293,7 @@
       <div class="fg">
         <label for="tf-entry">{isMaxWeekly ? 'Open price (понедельник)' : 'Фактический Entry'}</label>
         <input id="tf-entry" bind:value={entryActual} oninput={calc} inputmode="decimal"
-          placeholder={isMaxWeekly ? 'Введи Open понедельника' : ''} />
+          placeholder={isMaxWeekly ? 'Введи Open понедельника' : isGeneric ? 'Фактическая цена входа' : ''} />
       </div>
     </div>
 
@@ -309,7 +361,7 @@
 
     <div class="ar">
       <button onclick={onClose}>Отмена</button>
-      {#if !isMaxWeekly}
+      {#if !isMaxWeekly && !isGeneric}
         <button onclick={calc}>Рассчитать</button>
       {/if}
       <button onclick={save} disabled={!preview || saving || gapAlert?.triggered} class="btn-p">
