@@ -57,6 +57,7 @@
         {/each}
       </nav>
       <div class="user-area">
+        <a href="/today" class="link" class:active={$page.url.pathname === '/today'}>📅 Сегодня</a>
         <a href="/trades" class="link" class:active={$page.url.pathname === '/trades'}>Сделки</a>
         <a href="/scanner/max_weekly" class="link" class:active={$page.url.pathname === '/scanner/max_weekly'}>📊 MAX Weekly</a>
         <a href="/scanner/event_continuation" class="link" class:active={$page.url.pathname.startsWith('/scanner/event_continuation')}>⚡ Event</a>
