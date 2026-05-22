@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { parseNum } from '$lib/strategies/impulse';
   import { insertTrade } from '$lib/data/trades';
   import { updateCandidate } from '$lib/data/candidates';
@@ -38,6 +39,13 @@
   let preview = $state<any>(null);
   let gapAlert = $state<{ triggered: boolean; msg: string } | null>(null);
   let saving = $state(false);
+
+  // Автоматически рассчитываем при открытии если entry уже заполнен
+  onMount(() => {
+    if (!isMaxWeekly && entryActual && entryActual !== '0.00') {
+      calc();
+    }
+  });
 
   // ─── Расчёт позиции ───
   function calc() {
