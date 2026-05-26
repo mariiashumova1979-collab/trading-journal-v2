@@ -12,6 +12,7 @@
   let filterStatus = $state<'ALL'|'OPEN'|'CLOSED'>('ALL');
   let filterType   = $state('ALL');
   let filterCur    = $state('ALL');
+  let groupMode    = $state(false);
   let sortCol      = $state('entry_date');
   let sortDir      = $state<'asc'|'desc'>('desc');
 
@@ -37,6 +38,89 @@
     try { await deleteInvestment(id); load(); }
     catch(e: any) { alert('Ошибка: ' + (e as any).message); }
   }
+
+  // ─── Grouped view ───
+  interface GroupedInv {
+    ticker: string;
+    currency: string;
+    asset_type: string;
+    name: string | null;
+    ids: string[];
+    total_shares: number;
+    avg_entry_price: number;
+    cost_basis: number;
+    current_price: number | null;   // из последней записи по entry_date
+    current_value: number | null;
+    open_count: number;
+    closed_count: number;
+    realized_pnl: number;
+    unrealized_pnl: number | null;
+    dividends: number;
+    total_pnl: number | null;
+    total_pnl_pct: number | null;
+  }
+
+  function groupInvestments(list: InvestmentView[]): GroupedInv[] {
+    const map = new Map<string, InvestmentView[]>();
+    for (const inv of list) {
+      const key = inv.ticker + '__' + inv.currency;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(inv);
+    }
+    const result: GroupedInv[] = [];
+    for (const [, rows] of map) {
+      const open   = rows.filter(r => !r.is_closed);
+      const closed = rows.filter(r =>  r.is_closed);
+
+      // Средняя цена входа (взвешенная по объёму, только открытые)
+      const openCost   = open.reduce((s, r) => s + r.cost_basis, 0);
+      const openShares = open.reduce((s, r) => s + r.shares, 0);
+      const avgEntry   = openShares > 0 ? openCost / openShares : 0;
+
+      // Текущая цена — из самой свежей открытой записи с current_price
+      const withCur = open.filter(r => r.current_price != null)
+        .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+      const curPrice = withCur.length > 0 ? withCur[0].current_price : null;
+      const curValue = curPrice != null ? curPrice * openShares : null;
+
+      const realizedPnl  = closed.reduce((s, r) => s + (r.pnl_net ?? 0), 0);
+      const unrealizedPnl = curValue != null ? curValue - openCost : null;
+      const dividends    = rows.reduce((s, r) => s + r.dividends, 0);
+
+      const totalPnl = unrealizedPnl != null
+        ? unrealizedPnl + realizedPnl + dividends
+        : (realizedPnl + dividends || null);
+      const totalCost = rows.reduce((s, r) => s + r.cost_basis, 0);
+      const totalPnlPct = totalPnl != null && totalCost > 0 ? totalPnl / totalCost * 100 : null;
+
+      result.push({
+        ticker:        rows[0].ticker,
+        currency:      rows[0].currency,
+        asset_type:    rows[0].asset_type,
+        name:          rows[0].name,
+        ids:           rows.map(r => r.id),
+        total_shares:  openShares,
+        avg_entry_price: avgEntry,
+        cost_basis:    openCost,
+        current_price: curPrice,
+        current_value: curValue,
+        open_count:    open.length,
+        closed_count:  closed.length,
+        realized_pnl:  realizedPnl,
+        unrealized_pnl: unrealizedPnl,
+        dividends,
+        total_pnl:     totalPnl,
+        total_pnl_pct: totalPnlPct,
+      });
+    }
+    return result.sort((a, b) => b.cost_basis - a.cost_basis);
+  }
+
+  const grouped = $derived(groupInvestments(investments.filter(i => {
+    if (filterType !== 'ALL' && i.asset_type !== filterType) return false;
+    if (filterCur  !== 'ALL' && i.currency   !== filterCur)  return false;
+    return true;
+  })));
 
   // ─── Derived ───
   const allTypes  = $derived([...new Set(investments.map(i => i.asset_type))]);
@@ -157,7 +241,11 @@
         {#each allCurs as c}<option value={c}>{c}</option>{/each}
       </select>
     </div>
-    <span class="filter-count">{filtered.length} позиций</span>
+    <label class="chk-group">
+      <input type="checkbox" bind:checked={groupMode} />
+      Группировать по тикеру
+    </label>
+    <span class="filter-count">{groupMode ? grouped.length + ' тикеров' : filtered.length + ' позиций'}</span>
   </div>
 
   <!-- Table -->
@@ -165,13 +253,60 @@
     <div class="state">Загрузка...</div>
   {:else if error}
     <div class="state err">Ошибка: {error}</div>
-  {:else if filtered.length === 0}
+  {:else if groupMode && grouped.length === 0}
+    <div class="state">Нет позиций.</div>
+  {:else if !groupMode && filtered.length === 0}
     <div class="state">Нет позиций. Нажми «+ Добавить позицию».</div>
   {:else}
-    <div class="tw">
-      <table>
-        <thead>
-          <tr>
+    {#if groupMode}
+      <div class="tw">
+        <table>
+          <thead><tr>
+            <th>Тикер</th><th>Тип</th><th>Валюта</th><th>Позиций</th>
+            <th>Ср. цена входа</th><th>Кол-во (откр.)</th><th>Cost basis</th>
+            <th>Тек. цена</th><th>Тек. стоимость</th>
+            <th>Нереализ. P/L</th><th>Реализ. P/L</th><th>Дивид.</th>
+            <th>Итого P/L</th><th>Доход-ть</th>
+          </tr></thead>
+          <tbody>
+            {#each grouped as g (g.ticker + g.currency)}
+              <tr>
+                <td><b>{g.ticker}</b><div class="sub2">{g.name ?? ''}</div></td>
+                <td><span class="type-badge">{ASSET_LABELS[g.asset_type] ?? g.asset_type}</span></td>
+                <td><span class="cur-badge">{g.currency}</span></td>
+                <td class="mono-sm">
+                  <span style="color:var(--color-acc)">{g.open_count > 0 ? g.open_count + ' откр.' : ''}</span>
+                  <span style="color:var(--color-t3);margin-left:4px">{g.closed_count > 0 ? g.closed_count + ' закр.' : ''}</span>
+                </td>
+                <td class="mono">{g.avg_entry_price > 0 ? fmtN(g.avg_entry_price, g.asset_type==='crypto'?6:2) : '—'}</td>
+                <td class="mono">{g.total_shares > 0 ? fmtN(g.total_shares, g.asset_type==='crypto'?6:4) : '—'}</td>
+                <td class="mono"><b>{fmtN(g.cost_basis)}</b></td>
+                <td class="mono dim">{g.current_price ? fmtN(g.current_price, g.asset_type==='crypto'?6:2) : '—'}</td>
+                <td class="mono">{g.current_value ? fmtN(g.current_value) : '—'}</td>
+                <td class="mono bold" style="color:{pnlColor(g.unrealized_pnl)}">
+                  {g.unrealized_pnl != null ? (g.unrealized_pnl>=0?'+':'')+fmtN(g.unrealized_pnl) : '—'}
+                </td>
+                <td class="mono" style="color:{pnlColor(g.realized_pnl)}">
+                  {g.realized_pnl !== 0 ? (g.realized_pnl>=0?'+':'')+fmtN(g.realized_pnl) : '—'}
+                </td>
+                <td class="mono" style="color:{g.dividends>0?'var(--color-acc)':'inherit'}">
+                  {g.dividends > 0 ? '+'+fmtN(g.dividends) : '—'}
+                </td>
+                <td class="mono bold" style="color:{pnlColor(g.total_pnl)}">
+                  {g.total_pnl != null ? (g.total_pnl>=0?'+':'')+fmtN(g.total_pnl) : '—'}
+                </td>
+                <td class="mono" style="color:{pnlColor(g.total_pnl_pct)}">
+                  {fmtPct(g.total_pnl_pct)}{g.current_price == null && g.open_count > 0 ? ' *' : ''}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {:else}
+      <div class="tw">
+        <table>
+          <thead><tr>
             <th onclick={() => setSort('ticker')} class="s">{col('ticker','Тикер')}</th>
             <th>Тип</th>
             <th onclick={() => setSort('currency')} class="s">{col('currency','Валюта')}</th>
@@ -188,60 +323,56 @@
             <th onclick={() => setSort('total_return')} class="s">{col('total_return','Итого')}</th>
             <th>Статус</th>
             <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each filtered as inv (inv.id)}
-            <tr class:row-closed={inv.is_closed}>
-              <td>
-                <b>{inv.ticker}</b>
-                {#if inv.name}<div style="font-size:9px;color:var(--color-t3)">{inv.name}</div>{/if}
-              </td>
-              <td><span class="type-badge">{ASSET_LABELS[inv.asset_type]??inv.asset_type}</span></td>
-              <td><span class="cur-badge">{inv.currency}</span></td>
-              <td>{inv.entry_date}</td>
-              <td>{fmtN(inv.entry_price, inv.asset_type === 'crypto' ? 6 : 2)}</td>
-              <td>{fmtN(inv.shares, inv.asset_type === 'crypto' ? 6 : 4)}</td>
-              <td><b>{fmtN(inv.cost_basis)}</b></td>
-              <td style="color:var(--color-t2)">{inv.current_price ? fmtN(inv.current_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
-              <td>{inv.exit_price ? fmtN(inv.exit_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
-              <td>{inv.exit_date ?? '—'}</td>
-              <td style="color:{pnlColor(inv.pnl_net)};font-weight:{inv.pnl_net!=null?700:400}">
-                {inv.pnl_net != null ? (inv.pnl_net >= 0 ? '+' : '') + fmtN(inv.pnl_net) : '—'}
-              </td>
-              <td style="color:{pnlColor(inv.pnl_pct)}">
-                {fmtPct(inv.pnl_pct)}
-                {#if !inv.is_closed && inv.current_price == null}
-                  <span style="font-size:8px;color:var(--color-t3)"> (нет тек. цены)</span>
-                {/if}
-              </td>
-              <td style="color:{inv.dividends > 0 ? 'var(--color-acc)' : 'inherit'}">
-                {inv.dividends > 0 ? '+' + fmtN(inv.dividends) : '—'}
-              </td>
-              <td style="color:{pnlColor(inv.total_return)};font-weight:{inv.total_return!=null?700:400}">
-                {inv.total_return != null ? (inv.total_return >= 0 ? '+' : '') + fmtN(inv.total_return) : '—'}
-                {#if inv.total_return_pct != null}
-                  <div style="font-size:9px">{fmtPct(inv.total_return_pct)}</div>
-                {/if}
-              </td>
-              <td>
-                {#if inv.is_closed}
-                  <span class="badge-closed">Закрыта</span>
-                {:else if inv.current_price != null}
-                  <span class="badge-open">Открыта ✓</span>
-                {:else}
-                  <span class="badge-open-nc">Открыта</span>
-                {/if}
-              </td>
-              <td class="acts">
-                <button onclick={() => editInv = inv} style="font-size:9px;padding:4px 8px">✎</button>
-                <button onclick={() => handleDelete(inv.id)} class="btn-r" style="font-size:9px;padding:4px 6px">×</button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+          </tr></thead>
+          <tbody>
+            {#each filtered as inv (inv.id)}
+              <tr class:row-closed={inv.is_closed}>
+                <td>
+                  <b>{inv.ticker}</b>
+                  <div class="sub2">{inv.name ?? ''}</div>
+                </td>
+                <td><span class="type-badge">{ASSET_LABELS[inv.asset_type] ?? inv.asset_type}</span></td>
+                <td><span class="cur-badge">{inv.currency}</span></td>
+                <td class="mono">{inv.entry_date}</td>
+                <td class="mono">{fmtN(inv.entry_price, inv.asset_type==='crypto'?6:2)}</td>
+                <td class="mono">{fmtN(inv.shares, inv.asset_type==='crypto'?6:4)}</td>
+                <td class="mono"><b>{fmtN(inv.cost_basis)}</b></td>
+                <td class="mono dim">{inv.current_price ? fmtN(inv.current_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
+                <td class="mono">{inv.exit_price ? fmtN(inv.exit_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
+                <td class="mono">{inv.exit_date ?? '—'}</td>
+                <td class="mono bold" style="color:{pnlColor(inv.pnl_net)}">
+                  {inv.pnl_net != null ? (inv.pnl_net>=0?'+':'')+fmtN(inv.pnl_net) : '—'}
+                </td>
+                <td class="mono" style="color:{pnlColor(inv.pnl_pct)}">
+                  {fmtPct(inv.pnl_pct)}
+                  {#if !inv.is_closed && inv.current_price == null}<span class="sub2"> *</span>{/if}
+                </td>
+                <td class="mono" style="color:{inv.dividends>0?'var(--color-acc)':'inherit'}">
+                  {inv.dividends > 0 ? '+'+fmtN(inv.dividends) : '—'}
+                </td>
+                <td class="mono bold" style="color:{pnlColor(inv.total_return)}">
+                  {inv.total_return != null ? (inv.total_return>=0?'+':'')+fmtN(inv.total_return) : '—'}
+                  {#if inv.total_return_pct != null}<div class="sub2">{fmtPct(inv.total_return_pct)}</div>{/if}
+                </td>
+                <td>
+                  {#if inv.is_closed}
+                    <span class="badge-closed">Закрыта</span>
+                  {:else if inv.current_price != null}
+                    <span class="badge-open">Открыта ✓</span>
+                  {:else}
+                    <span class="badge-open-nc">Открыта</span>
+                  {/if}
+                </td>
+                <td class="acts">
+                  <button onclick={() => editInv = inv} style="font-size:9px;padding:4px 8px">✎</button>
+                  <button onclick={() => handleDelete(inv.id)} class="btn-r" style="font-size:9px;padding:4px 6px">×</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -287,4 +418,11 @@
   .badge-open      { font-family: var(--font-mono); font-size: 9px; color: var(--color-acc); }
   .badge-open-nc   { font-family: var(--font-mono); font-size: 9px; color: var(--color-acc3); }
   .acts { display: flex; gap: 4px; }
+  .mono { font-family: var(--font-mono); font-size: 11px; }
+  .mono-sm { font-family: var(--font-mono); font-size: 10px; }
+  .bold { font-weight: 700; }
+  .dim { color: var(--color-t2); }
+  .sub2 { font-size: 9px; color: var(--color-t3); }
+  .chk-group { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-t2); cursor: pointer; padding: 5px 10px; border: 1px solid var(--color-line); border-radius: 6px; background: var(--color-bg2); }
+  .chk-group input { width: auto; cursor: pointer; }
 </style>
