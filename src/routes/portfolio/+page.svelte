@@ -9,6 +9,8 @@
   let error       = $state<string|null>(null);
   let showAdd     = $state(false);
   let editInv     = $state<Investment|null>(null);
+  let groupEditTicker = $state<string|null>(null);
+  let groupEditCur    = $state<string|null>(null);
   let filterStatus = $state<'ALL'|'OPEN'|'CLOSED'>('ALL');
   let filterType   = $state('ALL');
   let filterCur    = $state('ALL');
@@ -167,6 +169,11 @@
     sortCol = col;
   }
 
+  function groupPositions(ticker: string, cur: string): InvestmentView[] {
+    return investments.filter(i => i.ticker === ticker && i.currency === cur)
+      .sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  }
+
   const fmtN = (v: number | null, dec = 2) =>
     v == null ? '—' : v.toLocaleString('ru-RU', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const fmtPct = (v: number | null) =>
@@ -298,6 +305,9 @@
                 <td class="mono" style="color:{pnlColor(g.total_pnl_pct)}">
                   {fmtPct(g.total_pnl_pct)}{g.current_price == null && g.open_count > 0 ? ' *' : ''}
                 </td>
+                <td class="acts">
+                  <button onclick={() => { groupEditTicker = g.ticker; groupEditCur = g.currency; }} style="font-size:9px;padding:4px 8px">✎</button>
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -383,6 +393,53 @@
   <InvestmentForm editInvestment={editInv} onClose={() => editInv = null} onSaved={load} />
 {/if}
 
+{#if groupEditTicker}
+  {@const positions = groupPositions(groupEditTicker, groupEditCur!)}
+  <div class="mo-bg" onclick={() => groupEditTicker = null} role="presentation">
+    <div class="mo-group" onclick={(e) => e.stopPropagation()} role="dialog">
+      <div class="mo-head">
+        <div>
+          <b>{groupEditTicker}</b>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-t2);margin-left:8px">{groupEditCur} · {positions.length} позиций</span>
+        </div>
+        <button onclick={() => groupEditTicker = null} class="cls">×</button>
+      </div>
+      <div class="mo-positions">
+        {#each positions as inv (inv.id)}
+          <div class="mo-pos-row" class:mo-pos-closed={inv.is_closed}>
+            <div class="mo-pos-info">
+              <span class="mono">{inv.entry_date}</span>
+              <span class="mono" style="margin-left:12px">{fmtN(inv.shares, inv.asset_type==='crypto'?6:4)} шт. × {fmtN(inv.entry_price, inv.asset_type==='crypto'?6:2)}</span>
+              <span class="mono" style="margin-left:12px;color:var(--color-t2)">= {fmtN(inv.cost_basis)}</span>
+              {#if inv.is_closed}
+                <span class="mono" style="margin-left:12px;color:var(--color-t3)">→ {fmtN(inv.exit_price ?? 0, inv.asset_type==='crypto'?6:2)} ({inv.exit_date})</span>
+                <span class="mono" style="margin-left:8px;color:{pnlColor(inv.pnl_net)};font-weight:700">
+                  {inv.pnl_net != null ? (inv.pnl_net>=0?'+':'')+fmtN(inv.pnl_net) : ''} ({fmtPct(inv.pnl_pct)})
+                </span>
+              {:else}
+                <span class="badge-open" style="margin-left:12px;font-family:var(--font-mono);font-size:9px">Открыта</span>
+                {#if inv.current_price}
+                  <span class="mono" style="margin-left:8px;color:{pnlColor(inv.pnl_net)};font-weight:700">
+                    {inv.pnl_net != null ? (inv.pnl_net>=0?'+':'')+fmtN(inv.pnl_net) : ''} ({fmtPct(inv.pnl_pct)})
+                  </span>
+                {/if}
+              {/if}
+            </div>
+            <div class="mo-pos-acts">
+              <button onclick={() => { groupEditTicker = null; editInv = inv; }} style="font-size:9px;padding:4px 10px">
+                {inv.is_closed ? '✎ Редактировать' : '✎ Редактировать / Закрыть'}
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button onclick={() => { groupEditTicker = null; showAdd = true; }} class="btn-p" style="font-size:10px">+ Добавить покупку</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .page { padding: 20px 0; }
   .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
@@ -425,4 +482,13 @@
   .sub2 { font-size: 9px; color: var(--color-t3); }
   .chk-group { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-t2); cursor: pointer; padding: 5px 10px; border: 1px solid var(--color-line); border-radius: 6px; background: var(--color-bg2); }
   .chk-group input { width: auto; cursor: pointer; }
+  .mo-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .mo-group { background: var(--color-bg2); border: 1px solid var(--color-line); border-radius: 12px; padding: 20px; width: 700px; max-width: 100%; max-height: 80vh; overflow-y: auto; }
+  .mo-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: 15px; font-weight: 700; }
+  .cls { background: transparent; border: none; color: var(--color-t2); font-size: 22px; cursor: pointer; padding: 0 8px; }
+  .mo-positions { display: flex; flex-direction: column; gap: 6px; }
+  .mo-pos-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--color-bg3); border: 1px solid var(--color-line); border-radius: 8px; flex-wrap: wrap; }
+  .mo-pos-closed { opacity: 0.65; }
+  .mo-pos-info { display: flex; align-items: center; flex-wrap: wrap; gap: 0; font-size: 11px; }
+  .mo-pos-acts { flex-shrink: 0; }
 </style>
