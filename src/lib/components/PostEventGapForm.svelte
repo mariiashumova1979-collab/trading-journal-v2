@@ -174,6 +174,13 @@
       atr14, avgVol, hc10, lc10, hc20, lc20,
       spyAbove, qqqAbove, vix, sectorAbove
     });
+    const _vix = parseNum(vix);
+    if (!isNaN(_vix)) {
+      saveMarketData(d0Date, {
+        vix: _vix,
+        spyAboveEma20: !!spyAbove
+      });
+    }
   });
 
   function resetDraft() {

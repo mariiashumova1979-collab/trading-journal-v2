@@ -181,11 +181,23 @@
   // Автосохранение черновика (только для new)
   $effect(() => {
     if (isEdit) return;
+    // Сохраняем черновик
     saveDraft(draftKey, {
       ticker, t0Date, spyClose, spyEma50, vix,
       d0H, d0L, d0C, ema21, ema50, atr14,
       minRangePrev6, high7, low7, capital
     });
+    // Сохраняем маркет-данные сразу при вводе (не только при save)
+    const _spyC = parseNum(spyClose);
+    const _spyE = parseNum(spyEma50);
+    const _vix  = parseNum(vix);
+    if (!isNaN(_spyC) || !isNaN(_spyE) || !isNaN(_vix)) {
+      saveMarketData(t0Date, {
+        ...(!isNaN(_spyC) ? { spyClose: _spyC } : {}),
+        ...(!isNaN(_spyE) ? { spyEma50: _spyE } : {}),
+        ...(!isNaN(_vix)  ? { vix: _vix }       : {})
+      });
+    }
   });
 
   function resetDraft() {

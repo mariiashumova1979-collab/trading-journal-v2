@@ -159,6 +159,14 @@
       ticker, t0Date, spyClose, spySma200,
       d0O, d0H, d0L, d0C, sma200, sma200_20, rsi2, atr14
     });
+    const _spyC = parseNum(spyClose);
+    const _spyM = parseNum(spySma200);
+    if (!isNaN(_spyC) || !isNaN(_spyM)) {
+      saveMarketData(t0Date, {
+        ...(!isNaN(_spyC) ? { spyClose:  _spyC } : {}),
+        ...(!isNaN(_spyM) ? { spySma200: _spyM } : {})
+      });
+    }
   });
 
   function resetDraft() {
