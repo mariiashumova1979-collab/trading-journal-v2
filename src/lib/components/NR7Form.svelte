@@ -31,12 +31,13 @@
   let minRangePrev6 = $state(ep?.min_range_prev6?.toString() ?? '');
   let high7         = $state(ep?.high7?.toString() ?? '');
   let low7          = $state(ep?.low7?.toString() ?? '');
-  // Инициализируем из localStorage сразу (работает для edit и new)
-  let capital  = $state(
-    typeof window !== 'undefined'
-      ? (() => { const v = localStorage.getItem(`tj_capital_nr7`); return v && parseFloat(v) > 0 ? v : '50000'; })()
-      : '50000'
-  );
+  // Читаем сохранённый размер позиции из localStorage (до инициализации компонента)
+  function _readCap_nr7() {
+    if (typeof window === 'undefined') return '50000';
+    const v = localStorage.getItem('tj_capital_nr7');
+    return v && parseFloat(v) > 0 ? v : '50000';
+  }
+  let capital  = $state(_readCap_nr7());
 
   let preview  = $state<any>(null);
   let errors   = $state<string[]>([]);

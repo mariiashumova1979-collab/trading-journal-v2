@@ -17,12 +17,12 @@
   const atr14 = payload?.atr14 ?? 0;
   const closeT0 = d0?.C ?? 0;
 
-  // Инициализируем из localStorage сразу (работает для edit и new)
-  let capital   = $state(
-    typeof window !== 'undefined'
-      ? (() => { const v = localStorage.getItem(`tj_capital_ibs_swing`); return v && parseFloat(v) > 0 ? v : '50000'; })()
-      : '50000'
-  );
+  function _readCap_ibsswing() {
+    if (typeof window === 'undefined') return '50000';
+    const v = localStorage.getItem('tj_capital_ibs_swing');
+    return v && parseFloat(v) > 0 ? v : '50000';
+  }
+  let capital  = $state(_readCap_ibsswing());
   let openD1    = $state('');
   let highD1    = $state('');
   let lowD1     = $state('');

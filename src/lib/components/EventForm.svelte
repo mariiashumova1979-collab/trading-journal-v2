@@ -32,12 +32,13 @@
   let atr14    = $state(ep?.atr14?.toString() ?? '');
   let high10d  = $state(ep?.high_10d?.toString() ?? '');
   let low10d   = $state(ep?.low_10d?.toString() ?? '');
-  // Инициализируем из localStorage сразу (работает для edit и new)
-  let riskAmt  = $state(
-    typeof window !== 'undefined'
-      ? (() => { const v = localStorage.getItem(`tj_capital_event_continuation`); return v && parseFloat(v) > 0 ? v : '100'; })()
-      : '100'
-  );
+  // Читаем сохранённый размер позиции из localStorage (до инициализации компонента)
+  function _readCap_eventcontinuation() {
+    if (typeof window === 'undefined') return '100';
+    const v = localStorage.getItem('tj_capital_event_continuation');
+    return v && parseFloat(v) > 0 ? v : '100';
+  }
+  let riskAmt  = $state(_readCap_eventcontinuation());
 
   let errors   = $state<string[]>([]);
   let warnings = $state<string[]>([]);

@@ -22,12 +22,12 @@
 
   let d1H = $state(''), d1L = $state(''), d1C = $state(''), d1V = $state('');
   let d1Date = $state(new Date().toISOString().split('T')[0]);
-  // Инициализируем из localStorage сразу (работает для edit и new)
-  let riskAmt   = $state(
-    typeof window !== 'undefined'
-      ? (() => { const v = localStorage.getItem(`tj_capital_pead`); return v && parseFloat(v) > 0 ? v : '100'; })()
-      : '100'
-  );
+  function _readCap_pead() {
+    if (typeof window === 'undefined') return '100';
+    const v = localStorage.getItem('tj_capital_pead');
+    return v && parseFloat(v) > 0 ? v : '100';
+  }
+  let riskAmt  = $state(_readCap_pead());
 
   const draftKey = `peg_d1_${candidate.id}`;
   onMount(() => {

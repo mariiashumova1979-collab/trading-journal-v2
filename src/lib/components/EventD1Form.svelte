@@ -26,12 +26,12 @@
   let d1C     = $state('');
   let d1V     = $state('');
   let d1Date  = $state(new Date().toISOString().split('T')[0]);
-  // Инициализируем из localStorage сразу (работает для edit и new)
-  let riskAmt   = $state(
-    typeof window !== 'undefined'
-      ? (() => { const v = localStorage.getItem(`tj_capital_event_continuation`); return v && parseFloat(v) > 0 ? v : '100'; })()
-      : '100'
-  );
+  function _readCap_eventcontinuation() {
+    if (typeof window === 'undefined') return '100';
+    const v = localStorage.getItem('tj_capital_event_continuation');
+    return v && parseFloat(v) > 0 ? v : '100';
+  }
+  let riskAmt  = $state(_readCap_eventcontinuation());
 
   const draftKey = `event_d1_${candidate.id}`;
   onMount(() => {
