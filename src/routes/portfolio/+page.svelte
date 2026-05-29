@@ -15,7 +15,10 @@
   let filterType   = $state('ALL');
   let filterCur    = $state('ALL');
   let groupMode    = $state(false);
-  let sortCol      = $state('entry_date');
+  let fPeriod   = $state<'all'|'year'|'month'|'custom'>('all');
+  let fDateFrom = $state('');
+  let fDateTo   = $state('');
+  let sortCol   = $state('entry_date');
   let sortDir      = $state<'asc'|'desc'>('desc');
 
   const ASSET_LABELS: Record<string,string> = {
@@ -128,12 +131,37 @@
   const allTypes  = $derived([...new Set(investments.map(i => i.asset_type))]);
   const allCurs   = $derived([...new Set(investments.map(i => i.currency))]);
 
+  // Вычисляем cutoff для периода
+  const periodCutoff = $derived.by(() => {
+    if (fPeriod === 'all') return '';
+    if (fPeriod === 'custom') return fDateFrom;
+    const now = new Date();
+    if (fPeriod === 'year')  return `${now.getFullYear()}-01-01`;
+    if (fPeriod === 'month') return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    return '';
+  });
+
   const filtered = $derived.by(() => {
     let list = [...investments];
     if (filterStatus === 'OPEN')   list = list.filter(i => !i.is_closed);
     if (filterStatus === 'CLOSED') list = list.filter(i =>  i.is_closed);
     if (filterType !== 'ALL')      list = list.filter(i => i.asset_type === filterType);
     if (filterCur  !== 'ALL')      list = list.filter(i => i.currency === filterCur);
+
+    // Фильтр по периоду: для закрытых по exit_date, для открытых по entry_date
+    if (fPeriod !== 'all') {
+      const from = fPeriod === 'custom' ? fDateFrom : periodCutoff;
+      const to   = fPeriod === 'custom' ? fDateTo   : '';
+      if (from) list = list.filter(i => {
+        const d = i.exit_date ?? i.entry_date;
+        return d && d >= from;
+      });
+      if (to)   list = list.filter(i => {
+        const d = i.exit_date ?? i.entry_date;
+        return d && d <= to;
+      });
+    }
+
     list.sort((a, b) => {
       const va = (a as any)[sortCol] ?? 0;
       const vb = (b as any)[sortCol] ?? 0;
@@ -228,6 +256,37 @@
     </div>
   {/if}
 
+  <!-- Period stats -->
+  {#if periodStats && periodStats.length > 0}
+    <div class="period-stats">
+      <div class="period-stats-title">
+        📊 Результат за период:
+        {#if fPeriod === 'custom'}
+          {fDateFrom || '…'} — {fDateTo || '…'}
+        {:else if fPeriod === 'year'}
+          {new Date().getFullYear()} год
+        {:else if fPeriod === 'month'}
+          {new Date().toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+        {/if}
+      </div>
+      {#each periodStats as [cur, s]}
+        <div class="period-stat-item">
+          <span class="cur-badge">{cur}</span>
+          <span style="color:{s.realized>=0?'var(--color-acc)':'var(--color-acc2)'};font-weight:700">
+            {s.realized>=0?'+':''}{fmtN(s.realized)}
+          </span>
+          {#if s.dividends > 0}
+            <span style="color:var(--color-acc);font-size:10px"> +дивид. {fmtN(s.dividends)}</span>
+          {/if}
+          <span style="color:var(--color-t3);font-size:10px">· {s.count} закрытых</span>
+          <span style="color:{(s.realized+s.dividends)>=0?'var(--color-acc)':'var(--color-acc2)'};font-size:10px;margin-left:6px">
+            итого: {(s.realized+s.dividends)>=0?'+':''}{fmtN(s.realized+s.dividends)}
+          </span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Filters -->
   <div class="filters">
     <div class="filter-group">
@@ -247,6 +306,19 @@
         <option value="ALL">Все валюты</option>
         {#each allCurs as c}<option value={c}>{c}</option>{/each}
       </select>
+    </div>
+    <div class="filter-group">
+      <select bind:value={fPeriod}>
+        <option value="all">Всё время</option>
+        <option value="year">Этот год</option>
+        <option value="month">Этот месяц</option>
+        <option value="custom">Произвольный</option>
+      </select>
+      {#if fPeriod === 'custom'}
+        <input type="date" bind:value={fDateFrom} style="width:130px" />
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-t2)">—</span>
+        <input type="date" bind:value={fDateTo}   style="width:130px" />
+      {/if}
     </div>
     <label class="chk-group">
       <input type="checkbox" bind:checked={groupMode} />
@@ -325,6 +397,7 @@
             <th onclick={() => setSort('shares')} class="s">{col('shares','Кол-во')}</th>
             <th onclick={() => setSort('cost_basis')} class="s">{col('cost_basis','Объём')}</th>
             <th onclick={() => setSort('current_price')} class="s">{col('current_price','Тек. цена')}</th>
+            <th onclick={() => setSort('exit_date')} class="s">{col('exit_date','Дата выхода')}</th>
             <th onclick={() => setSort('exit_price')} class="s">{col('exit_price','Цена выхода')}</th>
             <th onclick={() => setSort('exit_date')} class="s">{col('exit_date','Дата выхода')}</th>
             <th onclick={() => setSort('pnl_net')} class="s">{col('pnl_net','P/L')}</th>
@@ -348,6 +421,7 @@
                 <td class="mono">{fmtN(inv.shares, inv.asset_type==='crypto'?6:4)}</td>
                 <td class="mono"><b>{fmtN(inv.cost_basis)}</b></td>
                 <td class="mono dim">{inv.current_price ? fmtN(inv.current_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
+                <td class="mono" style="color:var(--color-t2)">{inv.exit_date ?? '—'}</td>
                 <td class="mono">{inv.exit_price ? fmtN(inv.exit_price, inv.asset_type==='crypto'?6:2) : '—'}</td>
                 <td class="mono">{inv.exit_date ?? '—'}</td>
                 <td class="mono bold" style="color:{pnlColor(inv.pnl_net)}">
@@ -482,6 +556,9 @@
   .sub2 { font-size: 9px; color: var(--color-t3); }
   .chk-group { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-t2); cursor: pointer; padding: 5px 10px; border: 1px solid var(--color-line); border-radius: 6px; background: var(--color-bg2); }
   .chk-group input { width: auto; cursor: pointer; }
+  .period-stats { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 14px; background: var(--color-bg2); border: 1px solid var(--color-acc); border-radius: 8px; margin-bottom: 12px; }
+  .period-stats-title { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--color-text); width: 100%; margin-bottom: 2px; }
+  .period-stat-item { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; background: var(--color-bg3); border-radius: 6px; }
   .mo-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
   .mo-group { background: var(--color-bg2); border: 1px solid var(--color-line); border-radius: 12px; padding: 20px; width: 700px; max-width: 100%; max-height: 80vh; overflow-y: auto; }
   .mo-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: 15px; font-weight: 700; }
