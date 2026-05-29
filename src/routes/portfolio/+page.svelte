@@ -192,6 +192,21 @@
     return [...map.entries()].sort((a,b) => b[1].cost - a[1].cost);
   });
 
+  // ─── Stats по выбранному периоду (только закрытые из filtered) ───
+  const periodStats = $derived.by(() => {
+    if (fPeriod === 'all') return null;
+    const map = new Map<string, { realized: number; dividends: number; count: number }>();
+    for (const inv of filtered) {
+      if (!inv.is_closed) continue;
+      if (!map.has(inv.currency)) map.set(inv.currency, { realized: 0, dividends: 0, count: 0 });
+      const s = map.get(inv.currency)!;
+      s.realized  += inv.pnl_net ?? 0;
+      s.dividends += inv.dividends;
+      s.count++;
+    }
+    return [...map.entries()].filter(([, s]) => s.count > 0);
+  });
+
   function setSort(col: string) {
     sortDir = sortCol === col ? (sortDir === 'asc' ? 'desc' : 'asc') : 'desc';
     sortCol = col;
