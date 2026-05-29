@@ -28,8 +28,7 @@
   const draftKey = `nr7_d1_${candidate.id}`;
 
   onMount(() => {
-    // Восстанавливаем последний размер позиции
-    capital = String(loadCapital('nr7', 50000));
+    // Восстанавливаем размер позиции как начальное значение (черновик может перезаписать ниже)
     const d = loadDraft<any>(draftKey);
     if (d) {
       if (d.mode)      mode      = d.mode;
@@ -44,8 +43,6 @@
     saveDraft(draftKey, { mode, openD1, fillPrice, closeD2, d1Date });
 
     // Сохраняем размер позиции (работает и при редактировании)
-    const _cap = parseFloat(capital.replace(',','.'));
-    if (!isNaN(_cap) && _cap > 0) saveCapital('nr7', _cap);
   });
 
   let result    = $state<any>(null);

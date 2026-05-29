@@ -31,7 +31,12 @@
   let minRangePrev6 = $state(ep?.min_range_prev6?.toString() ?? '');
   let high7         = $state(ep?.high7?.toString() ?? '');
   let low7          = $state(ep?.low7?.toString() ?? '');
-  let capital       = $state('50000');
+  // Инициализируем из localStorage сразу (работает для edit и new)
+  let capital  = $state(
+    typeof window !== 'undefined'
+      ? (() => { const v = localStorage.getItem(`tj_capital_nr7`); return v && parseFloat(v) > 0 ? v : '50000'; })()
+      : '50000'
+  );
 
   let preview  = $state<any>(null);
   let errors   = $state<string[]>([]);
@@ -175,9 +180,10 @@
       if (!spyEma50 && mkt.spyEma50 !== undefined) spyEma50 = String(mkt.spyEma50);
       if (!vix      && mkt.vix      !== undefined) vix      = String(mkt.vix);
     }
-    // Восстанавливаем последний использованный размер позиции
-    const savedCap = loadCapital('nr7', 50000);
-    capital = String(savedCap);
+    // Восстанавливаем размер позиции только если ещё не задан черновиком
+    if (capital === '50000') {
+      capital = String(loadCapital('nr7', 50000));
+    }
     calc();
   });
 

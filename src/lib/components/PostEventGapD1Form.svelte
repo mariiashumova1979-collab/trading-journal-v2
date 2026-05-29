@@ -22,12 +22,17 @@
 
   let d1H = $state(''), d1L = $state(''), d1C = $state(''), d1V = $state('');
   let d1Date = $state(new Date().toISOString().split('T')[0]);
-  let riskAmt = $state('100');
+  // Инициализируем из localStorage сразу (работает для edit и new)
+  let riskAmt   = $state(
+    typeof window !== 'undefined'
+      ? (() => { const v = localStorage.getItem(`tj_capital_pead`); return v && parseFloat(v) > 0 ? v : '100'; })()
+      : '100'
+  );
 
   const draftKey = `peg_d1_${candidate.id}`;
   onMount(() => {
-    // Восстанавливаем последний размер позиции
-    riskAmt = String(loadCapital('pead', 100));
+    // Восстанавливаем размер позиции как начальное значение (черновик может перезаписать ниже)
+    if (riskAmt === '100') riskAmt = String(loadCapital('pead', 100));
     const d = loadDraft<any>(draftKey);
     if (d) {
       if (d.d1H)     d1H     = d.d1H;

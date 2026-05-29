@@ -32,7 +32,12 @@
   let atr14    = $state(ep?.atr14?.toString() ?? '');
   let high10d  = $state(ep?.high_10d?.toString() ?? '');
   let low10d   = $state(ep?.low_10d?.toString() ?? '');
-  let riskAmt  = $state('100');
+  // Инициализируем из localStorage сразу (работает для edit и new)
+  let riskAmt  = $state(
+    typeof window !== 'undefined'
+      ? (() => { const v = localStorage.getItem(`tj_capital_event_continuation`); return v && parseFloat(v) > 0 ? v : '100'; })()
+      : '100'
+  );
 
   let errors   = $state<string[]>([]);
   let warnings = $state<string[]>([]);
@@ -174,9 +179,10 @@
         if (d.riskAmt)  riskAmt  = d.riskAmt;
       }
     }
-    // Восстанавливаем последний использованный размер позиции
-    const savedCap = loadCapital('event_continuation', 100);
-    riskAmt = String(savedCap);
+    // Восстанавливаем размер позиции только если ещё не задан черновиком
+    if (riskAmt === '100') {
+      riskAmt = String(loadCapital('event_continuation', 100));
+    }
     calc();
   });
   $effect(() => {

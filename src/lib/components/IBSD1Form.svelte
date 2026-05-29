@@ -17,7 +17,12 @@
   const atr14 = payload?.atr14 ?? 0;
   const closeT0 = d0?.C ?? 0;
 
-  let capital   = $state('50000');
+  // Инициализируем из localStorage сразу (работает для edit и new)
+  let capital   = $state(
+    typeof window !== 'undefined'
+      ? (() => { const v = localStorage.getItem(`tj_capital_ibs_swing`); return v && parseFloat(v) > 0 ? v : '50000'; })()
+      : '50000'
+  );
   let openD1    = $state('');
   let highD1    = $state('');
   let lowD1     = $state('');
@@ -27,8 +32,8 @@
 
   const draftKey = `ibs_d1_${candidate.id}`;
   onMount(() => {
-    // Восстанавливаем последний размер позиции
-    capital = String(loadCapital('ibs_swing', 50000));
+    // Восстанавливаем размер позиции как начальное значение (черновик может перезаписать ниже)
+    if (capital === '50000') capital = String(loadCapital('ibs_swing', 50000));
     const d = loadDraft<any>(draftKey);
     if (d) {
       if (d.capital) capital = d.capital;
