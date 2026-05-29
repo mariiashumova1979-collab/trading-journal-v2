@@ -7,7 +7,7 @@
   } from '$lib/strategies/event_continuation';
   import { updateCandidate } from '$lib/data/candidates';
   import { updateTrade } from '$lib/data/trades';
-  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
+  import { saveDraft, loadDraft, clearDraft, saveCapital, loadCapital } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { candidate, onClose, onUpdated }: {

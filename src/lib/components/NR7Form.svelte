@@ -181,25 +181,33 @@
       if (!spyEma50 && mkt.spyEma50 !== undefined) spyEma50 = String(mkt.spyEma50);
       if (!vix      && mkt.vix      !== undefined) vix      = String(mkt.vix);
     }
-    // Восстанавливаем размер позиции только если ещё не задан черновиком
-    if (capital === '50000') {
-      capital = String(loadCapital('nr7', 50000));
-    }
     calc();
   });
 
-  // Автосохранение черновика (только для new)
+  // Сохранение размера позиции — работает ВСЕГДА (и new, и edit)
+  $effect(() => {
+    const _cap = parseFloat(capital.replace(',','.'));
+    if (!isNaN(_cap) && _cap > 0) saveCapital('nr7', _cap);
+  });
+
+  // Автосохранение черновика + маркет-данных (только для new)
   $effect(() => {
     if (isEdit) return;
-    // Сохраняем черновик
     saveDraft(draftKey, {
       ticker, t0Date, spyClose, spyEma50, vix,
       d0H, d0L, d0C, ema21, ema50, atr14,
       minRangePrev6, high7, low7, capital
     });
-    // Сохраняем маркет-данные и размер позиции (работает и при редактировании)
-    const _cap = parseFloat(capital.replace(',','.'));
-    if (!isNaN(_cap) && _cap > 0) saveCapital('nr7', _cap);
+    const _spyC = parseNum(spyClose);
+    const _spyE = parseNum(spyEma50);
+    const _vix  = parseNum(vix);
+    if (!isNaN(_spyC) || !isNaN(_spyE) || !isNaN(_vix)) {
+      saveMarketData(t0Date, {
+        ...(!isNaN(_spyC) ? { spyClose: _spyC } : {}),
+        ...(!isNaN(_spyE) ? { spyEma50: _spyE } : {}),
+        ...(!isNaN(_vix)  ? { vix: _vix }       : {})
+      });
+    }
   });
 
   function resetDraft() {

@@ -186,15 +186,19 @@
     }
     calc();
   });
+  // Размер позиции сохраняем всегда (и new, и edit)
+  $effect(() => {
+    const _cap = parseFloat(riskAmt.replace(',','.'));
+    if (!isNaN(_cap) && _cap > 0) saveCapital('event_continuation', _cap);
+  });
+
+  // Черновик только для new
   $effect(() => {
     if (isEdit) return;
     saveDraft(draftKey, {
       ticker, d0Date, prevC, d0O, d0H, d0L, d0C, d0V,
       avgVol20, atr14, high10d, low10d, riskAmt
     });
-    // Сохраняем размер позиции (работает и при редактировании)
-    const _cap = parseFloat(riskAmt.replace(',','.'));
-    if (!isNaN(_cap) && _cap > 0) saveCapital('event_continuation', _cap);
   });
   function resetDraft() {
     if (!confirm('Очистить все поля и сбросить черновик?')) return;
