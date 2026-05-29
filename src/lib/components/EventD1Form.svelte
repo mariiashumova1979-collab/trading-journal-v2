@@ -30,6 +30,8 @@
 
   const draftKey = `event_d1_${candidate.id}`;
   onMount(() => {
+    // Восстанавливаем последний размер позиции
+    riskAmt = String(loadCapital('event_continuation', 100));
     const d = loadDraft<any>(draftKey);
     if (d) {
       if (d.d1H)     d1H     = d.d1H;
@@ -42,6 +44,10 @@
   });
   $effect(() => {
     saveDraft(draftKey, { d1H, d1L, d1C, d1V, d1Date, riskAmt });
+
+    // Сохраняем размер позиции (работает и при редактировании)
+    const _cap = parseFloat(riskAmt.replace(',','.'));
+    if (!isNaN(_cap) && _cap > 0) saveCapital('event_continuation', _cap);
   });
 
   let result  = $state<any>(null);

@@ -3,7 +3,7 @@
   import { parseNum, calcNR7D0Metrics, validateNR7D0, calcNR7Entry } from '$lib/strategies/nr7';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
-  import { saveDraft, loadDraft, clearDraft, saveMarketData, loadMarketData } from '$lib/utils/draftStorage';
+  import { saveDraft, loadDraft, clearDraft, saveCapital, loadCapital, saveMarketData, loadMarketData } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
@@ -175,6 +175,9 @@
       if (!spyEma50 && mkt.spyEma50 !== undefined) spyEma50 = String(mkt.spyEma50);
       if (!vix      && mkt.vix      !== undefined) vix      = String(mkt.vix);
     }
+    // Восстанавливаем последний использованный размер позиции
+    const savedCap = loadCapital('nr7', 50000);
+    capital = String(savedCap);
     calc();
   });
 
@@ -187,17 +190,9 @@
       d0H, d0L, d0C, ema21, ema50, atr14,
       minRangePrev6, high7, low7, capital
     });
-    // Сохраняем маркет-данные сразу при вводе (не только при save)
-    const _spyC = parseNum(spyClose);
-    const _spyE = parseNum(spyEma50);
-    const _vix  = parseNum(vix);
-    if (!isNaN(_spyC) || !isNaN(_spyE) || !isNaN(_vix)) {
-      saveMarketData(t0Date, {
-        ...(!isNaN(_spyC) ? { spyClose: _spyC } : {}),
-        ...(!isNaN(_spyE) ? { spyEma50: _spyE } : {}),
-        ...(!isNaN(_vix)  ? { vix: _vix }       : {})
-      });
-    }
+    // Сохраняем маркет-данные и размер позиции (работает и при редактировании)
+    const _cap = parseFloat(capital.replace(',','.'));
+    if (!isNaN(_cap) && _cap > 0) saveCapital('nr7', _cap);
   });
 
   function resetDraft() {

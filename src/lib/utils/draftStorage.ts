@@ -51,6 +51,20 @@ export function saveMarketData(date: string, data: MarketData): void {
   } catch {}
 }
 
+// ─── User preferences (capital/risk per strategy) ───
+export function saveCapital(strategy: string, value: number): void {
+  if (typeof window === 'undefined' || isNaN(value) || value <= 0) return;
+  try { localStorage.setItem(`tj_capital_${strategy}`, String(value)); } catch {}
+}
+
+export function loadCapital(strategy: string, fallback: number): number {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const v = parseFloat(localStorage.getItem(`tj_capital_${strategy}`) ?? '');
+    return isNaN(v) || v <= 0 ? fallback : v;
+  } catch { return fallback; }
+}
+
 export function loadMarketData(date: string): MarketData | null {
   if (typeof window === 'undefined' || !date) return null;
   try {

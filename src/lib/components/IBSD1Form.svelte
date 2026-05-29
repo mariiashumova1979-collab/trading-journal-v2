@@ -27,6 +27,8 @@
 
   const draftKey = `ibs_d1_${candidate.id}`;
   onMount(() => {
+    // Восстанавливаем последний размер позиции
+    capital = String(loadCapital('ibs_swing', 50000));
     const d = loadDraft<any>(draftKey);
     if (d) {
       if (d.capital) capital = d.capital;
@@ -40,6 +42,10 @@
   });
   $effect(() => {
     saveDraft(draftKey, { capital, openD1, highD1, lowD1, closeD1, d1Date, mode });
+
+    // Сохраняем размер позиции (работает и при редактировании)
+    const _cap = parseFloat(capital.replace(',','.'));
+    if (!isNaN(_cap) && _cap > 0) saveCapital('ibs_swing', _cap);
   });
 
   let result    = $state<any>(null);
