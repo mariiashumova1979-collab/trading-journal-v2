@@ -11,8 +11,10 @@
   let error = $state<string | null>(null);
 
   let fStrategy = $state<Strategy | ''>('');
-  let fStatus = $state<TradeStatus | ''>('');
-  let fPeriod = $state<'all' | 'year' | 'month' | '30d'>('all');
+  let fStatus   = $state<TradeStatus | ''>('');
+  let fPeriod   = $state<'all' | 'year' | 'month' | 'week' | '30d' | 'custom'>('all');
+  let fDateFrom = $state('');
+  let fDateTo   = $state('');
   let editTrade = $state<Trade | null>(null);
 
   let unsubscribe: (() => void) | null = null;
@@ -47,21 +49,47 @@
     load();
   });
 
-  // Применение период-фильтра локально (сервер не фильтрует по периоду)
+  // Применение период-фильтра локально
   const filteredTrades = $derived.by(() => {
-    if (fPeriod === 'all') return trades;
+    let list = trades;
+
+    if (fPeriod === 'custom') {
+      // Фильтр по кастомным датам — используем exit_date для закрытых, entry_date для открытых
+      if (fDateFrom) {
+        list = list.filter(t => {
+          const d = t.exit_date ?? t.entry_date;
+          return d && d >= fDateFrom;
+        });
+      }
+      if (fDateTo) {
+        list = list.filter(t => {
+          const d = t.exit_date ?? t.entry_date;
+          return d && d <= fDateTo;
+        });
+      }
+      return list;
+    }
+
+    if (fPeriod === 'all') return list;
     const now = new Date();
     let cutoff: Date;
     if (fPeriod === 'year') {
       cutoff = new Date(now.getFullYear(), 0, 1);
     } else if (fPeriod === 'month') {
       cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (fPeriod === 'week') {
+      cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 7);
     } else {
       cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - 30);
     }
     const cutoffStr = cutoff.toISOString().split('T')[0];
-    return trades.filter(t => t.entry_date && t.entry_date >= cutoffStr);
+    // Для закрытых смотрим exit_date, для открытых entry_date
+    return list.filter(t => {
+      const d = t.exit_date ?? t.entry_date;
+      return d && d >= cutoffStr;
+    });
   });
 
   // Статистика по отфильтрованным сделкам
@@ -150,8 +178,18 @@
       <option value="all">Всё время</option>
       <option value="year">Этот год</option>
       <option value="month">Этот месяц</option>
+      <option value="week">Последние 7 дней</option>
       <option value="30d">Последние 30 дней</option>
+      <option value="custom">Произвольный период</option>
     </select>
+    {#if fPeriod === 'custom'}
+      <div class="date-range">
+        <label>С</label>
+        <input type="date" bind:value={fDateFrom} />
+        <label>По</label>
+        <input type="date" bind:value={fDateTo} />
+      </div>
+    {/if}
   </div>
 
   <!-- СТАТИСТИКА -->
@@ -201,7 +239,8 @@
       <table>
         <thead>
           <tr>
-            <th>Date</th>
+            <th>Дата входа</th>
+            <th>Дата выхода</th>
             <th>Ticker</th>
             <th>Strategy</th>
             <th>Type</th>
@@ -221,6 +260,7 @@
             {@const sd = STRATEGIES[t.strategy]}
             <tr class="row" onclick={() => (editTrade = t)}>
               <td>{t.entry_date ?? '—'}</td>
+              <td style="color:{t.exit_date ? 'var(--color-t2)' : 'var(--color-t3)'}">{t.exit_date ?? (t.status === 'CLOSED' ? '—' : '')}</td>
               <td><b>{t.ticker}</b></td>
               <td><span style="color:{sd?.color || 'inherit'}">{sd?.name || t.strategy}</span></td>
               <td><span style="color:{t.type === 'LONG' ? 'var(--color-acc)' : 'var(--color-acc2)'}">{t.type}</span></td>
@@ -271,6 +311,8 @@
   .stat-sub { font-family: var(--font-mono); font-size: 9px; color: var(--color-t3); margin-top: 4px; }
   .state { padding: 30px; text-align: center; color: var(--color-t2); font-family: var(--font-mono); font-size: 11px; }
   .err { color: var(--color-acc2); }
+  .date-range { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-t2); }
+  .date-range input { width: 130px; }
   .tw { overflow-x: auto; }
   .row { cursor: pointer; }
   .row:hover { background: var(--color-bg3); }
