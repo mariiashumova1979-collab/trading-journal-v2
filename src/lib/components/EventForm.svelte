@@ -8,7 +8,7 @@
   } from '$lib/strategies/event_continuation';
   import { insertCandidate, updateCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
-  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
+  import { saveDraft, loadDraft, clearDraft, saveCapital, loadCapital } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { onClose, onAdded, editCandidate = null }: {
