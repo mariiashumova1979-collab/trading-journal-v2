@@ -1,7 +1,7 @@
 export type TradeType = 'LONG' | 'SHORT';
 export type TradeStatus = 'OPEN' | 'PARTIAL' | 'CLOSED';
 export type TradeResult = 'WIN' | 'LOSS' | null;
-export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly' | 'nr7';
+export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly' | 'nr7' | 'gap_reversal';
 
 export interface Trade {
   id: string;
@@ -197,6 +197,14 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
     icon: '📐',
     color: '#16a085',
     description: 'NR7 Volatility Expansion Breakout',
+    active: true
+  },
+  gap_reversal: {
+    id: 'gap_reversal',
+    name: 'Gap Rev',
+    icon: '↩️',
+    color: '#e67e22',
+    description: 'Gap Reversal 1 — gap down в восходящем тренде',
     active: true
   }
 };

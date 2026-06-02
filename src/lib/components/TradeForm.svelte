@@ -16,12 +16,13 @@
   const mwPayload = isMaxWeekly ? (candidate.payload as MaxWeeklyPayload) : null;
 
   // Стратегии с уже рассчитанными entry/stop/target в кандидате
-  const isGeneric = ['ibs_swing', 'nr7', 'event_continuation', 'pead'].includes(candidate.strategy);
+  const isGeneric = ['ibs_swing', 'nr7', 'event_continuation', 'pead', 'gap_reversal'].includes(candidate.strategy);
   const strategyNames: Record<string, string> = {
     ibs_swing: 'IBS Mean Reversion',
     nr7: 'NR7 Breakout',
     event_continuation: 'Event Continuation',
-    pead: 'Post-Event Gap'
+    pead: 'Post-Event Gap',
+    gap_reversal: 'Gap Reversal 1'
   };
   const genericAtr = isGeneric ? (
     (candidate.payload as any)?.atr14 ||

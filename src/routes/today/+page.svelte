@@ -14,6 +14,7 @@
   import NR7D1Form        from '$lib/components/NR7D1Form.svelte';
   import EventD1Form      from '$lib/components/EventD1Form.svelte';
   import PostEventGapD1Form from '$lib/components/PostEventGapD1Form.svelte';
+  import GapD1Form from '$lib/components/GapD1Form.svelte';
 
   // ─── State ───
   let loading   = $state(true);
@@ -56,7 +57,7 @@
   // ─── Load ───
   async function load() {
     try {
-      const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7'];
+      const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal'];
       const candArrays = await Promise.all(strategies.map(s => listCandidates(s)));
       candidates = candArrays.flat().filter(c =>
         ['WAITING_OPEN','WAITING_D1','READY_ENTRY','ENTERED'].includes(c.status)
@@ -69,7 +70,7 @@
 
   onMount(() => {
     load();
-    const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7'];
+    const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal'];
     strategies.forEach(s => {
       unsubs.push(subscribeCandidates(s, load));
     });
@@ -234,6 +235,32 @@
           trigger = entryStr;
           hint = `Stop: ${stop != null ? '$'+stop.toFixed(2) : '—'} · T1: +1.5R (50%) · T2: +2.2R`;
           timeLabel = 'На открытии';
+        }
+      }
+
+      else if (c.strategy === 'gap_reversal') {
+        if (c.status === 'WAITING_D1') {
+          when = 'morning';
+          urgent = true;
+          const closeT0v = p?.close_t0;
+          action = 'Gap check + Buy Limit';
+          trigger = closeT0v ? `Close_T0 $${Number(closeT0v).toFixed(2)}` : 'Введи Open D+1';
+          hint = `GapATR 1.0–2.0 · Open > SMA50 (${p?.sma50 ? Number(p.sma50).toFixed(2) : '—'}) · Buy Limit = Open + 25% гэпа`;
+          timeLabel = '16:00-16:25 EET';
+        } else if (c.status === 'READY_ENTRY') {
+          when = 'morning';
+          urgent = true;
+          const entryStr = entry != null ? `$${entry.toFixed(2)}` : '—';
+          action = `Buy Limit ${entryStr}`;
+          trigger = entryStr;
+          hint = `Stop: ${stop != null ? '$'+stop.toFixed(2) : '—'} · ⚠ 17:00 check: выход если < Entry −1.5% · Лимитка 30 мин`;
+          timeLabel = 'Открытие 16:30';
+        } else if (c.status === 'ENTERED' && dayN === 0) {
+          when = 'morning';
+          urgent = true;
+          action = '⚠ Проверка 17:00 (30 мин)';
+          hint = `Если цена < Entry × 0.985 → выйти (обвал, не reversal)`;
+          timeLabel = '17:00 EET';
         }
       }
 
@@ -505,6 +532,8 @@
   <EventD1Form candidate={d1Cand} onClose={() => { d1Cand = null; d1FormType = null; }} onUpdated={load} />
 {:else if d1Cand && (d1FormType === 'pead')}
   <PostEventGapD1Form candidate={d1Cand} onClose={() => { d1Cand = null; d1FormType = null; }} onUpdated={load} />
+{:else if d1Cand && d1FormType === 'gap_reversal'}
+  <GapD1Form candidate={d1Cand} onClose={() => { d1Cand = null; d1FormType = null; }} onUpdated={load} />
 {/if}
 
 <style>
