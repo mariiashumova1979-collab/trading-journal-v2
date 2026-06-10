@@ -37,6 +37,8 @@ export interface GapD0Metrics {
   marketRegime: 'OK' | 'NO';
   aboveSma100: boolean;
   sma100Rising: boolean;
+  atrPct: number;          // ATR14 / Close — волатильность
+  atrPctOk: boolean;       // ATRp ≤ 5%
 }
 
 export interface GapD0Validation {
@@ -50,10 +52,11 @@ export function calcGapD0Metrics(d: GapD0Data): GapD0Metrics {
   const marketRegime = getGapRegime(d.spyClose, d.spySma200, d.vix);
   const aboveSma100 = d.close > d.sma100;
   const sma100Rising = d.sma100 > d.sma100_20ago;
-  // В watchlist попадаем если тренд вверх (рыночный фильтр проверяется но не блокирует watchlist,
-  // т.к. рынок может измениться к утру D+1 — но мы фиксируем его статус)
-  const inWatchlist = aboveSma100 && sma100Rising;
-  return { inWatchlist, marketRegime, aboveSma100, sma100Rising };
+  const atrPct = d.close > 0 ? d.atr14 / d.close : 0;
+  const atrPctOk = atrPct <= 0.05;   // отсев слишком волатильных: ATRp > 5%
+  // В watchlist: тренд вверх + приемлемая волатильность
+  const inWatchlist = aboveSma100 && sma100Rising && atrPctOk;
+  return { inWatchlist, marketRegime, aboveSma100, sma100Rising, atrPct, atrPctOk };
 }
 
 export function validateGapD0(d: GapD0Data, m: GapD0Metrics): GapD0Validation {
@@ -66,6 +69,11 @@ export function validateGapD0(d: GapD0Data, m: GapD0Metrics): GapD0Validation {
 
   checks.push({ label: 'Close > SMA100', ok: m.aboveSma100, value: `${d.close.toFixed(2)} vs ${d.sma100.toFixed(2)}` });
   checks.push({ label: 'SMA100 растёт (vs 20D)', ok: m.sma100Rising, value: `${d.sma100.toFixed(2)} vs ${d.sma100_20ago.toFixed(2)}` });
+  checks.push({
+    label: 'ATRp ≤ 5% (ATR14/Close)',
+    ok: m.atrPctOk,
+    value: `${(m.atrPct * 100).toFixed(2)}%`
+  });
   checks.push({
     label: 'Market: SPY > SMA200 & VIX < 30',
     ok: m.marketRegime === 'OK',
@@ -119,6 +127,8 @@ export interface GapEntry {
   buyLimit: number;        // Open_D1 + 25% гэпа (Вариант B)
   stop: number;            // Entry - 1.5×ATR
   stopDistance: number;
+  stopPct: number;         // StopDistance / Entry
+  stopPctOk: boolean;      // ≤ 7%, иначе СДЕЛКА ОТМЕНЯЕТСЯ
   target1: number;         // min(Close_T0, Entry + ATR)
   target2: number;         // Entry + 2×ATR
   check1700: number;       // Entry × 0.985 (защита через 30 мин)
@@ -137,15 +147,18 @@ export function calcGapEntry(
   const buyLimit = openD1 + 0.25 * gapAbs;   // Вариант B
   const stopDistance = 1.5 * atr14;
   const stop = buyLimit - stopDistance;
+  // ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА: StopDistance / Entry > 7% → СДЕЛКА ОТМЕНЯЕТСЯ
+  const stopPct = buyLimit > 0 ? stopDistance / buyLimit : 1;
+  const stopPctOk = stopPct <= 0.07;
   // T1 = меньшая из (полное закрытие гэпа = Close_T0) и (Entry + ATR)
   const target1 = Math.min(closeT0, buyLimit + atr14);
   const target2 = buyLimit + 2 * atr14;
   const check1700 = buyLimit * 0.985;        // выход если цена ниже на закрытии проверки
-  const shares = stopDistance > 0 ? Math.floor((capital * 0.01) / stopDistance) : 0;
+  const shares = stopDistance > 0 && stopPctOk ? Math.floor((capital * 0.01) / stopDistance) : 0;
   const riskAmount = shares * stopDistance;
   const positionValue = shares * buyLimit;
 
-  return { buyLimit, stop, stopDistance, target1, target2, check1700, shares, positionValue, riskAmount };
+  return { buyLimit, stop, stopDistance, stopPct, stopPctOk, target1, target2, check1700, shares, positionValue, riskAmount };
 }
 
 // ─── Проверка 17:00 (через 30 мин после открытия) ───

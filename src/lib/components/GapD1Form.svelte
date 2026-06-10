@@ -60,25 +60,31 @@
     const cap = parseNum(capital) || 20000;
     const pos = calcGapEntry(closeT0, open, atr14, cap);
 
-    const note = gapCheck.passed
+    // Финальный allowed = gap ок И стоп в пределах 7%
+    const allowed = gapCheck.passed && pos.stopPctOk;
+
+    const note = allowed
       ? [
           `Gap Reversal D+1 (${d1Date}): Open ${open.toFixed(2)} · ${gapCheck.reason}`,
           `Buy Limit (Open + 25% гэпа): ${pos.buyLimit.toFixed(2)}`,
-          `Stop (−1.5×ATR): ${pos.stop.toFixed(2)} · Shares: ${pos.shares} · Risk: $${pos.riskAmount.toFixed(0)}`,
+          `Stop (−1.5×ATR): ${pos.stop.toFixed(2)} · StopDist/Entry: ${(pos.stopPct*100).toFixed(1)}% ✓ (≤7%)`,
+          `Shares: ${pos.shares} · Risk: $${pos.riskAmount.toFixed(0)}`,
           `T1: ${pos.target1.toFixed(2)} (мин из Close_T0 и Entry+ATR) · T2: ${pos.target2.toFixed(2)}`,
           `⚠ Проверка 17:00 EET: выйти если цена < ${pos.check1700.toFixed(2)} (Entry −1.5%)`
         ].join('\n')
-      : `Gap Reversal D+1 (${d1Date}): ОТМЕНА — ${gapCheck.reason}`;
+      : !gapCheck.passed
+      ? `Gap Reversal D+1 (${d1Date}): ОТМЕНА — ${gapCheck.reason}`
+      : `Gap Reversal D+1 (${d1Date}): ОТМЕНА — StopDistance/Entry = ${(pos.stopPct*100).toFixed(1)}% > 7% (правило отмены)`;
 
-    result = { type: 'gap', gapCheck, pos, note };
+    result = { type: 'gap', gapCheck, pos, allowed, note };
   }
 
   async function saveGap() {
     if (!result || result.type !== 'gap') return;
     saving = true;
     try {
-      const { gapCheck, pos } = result;
-      if (!gapCheck.passed) {
+      const { gapCheck, pos, allowed } = result;
+      if (!allowed) {
         await updateCandidate(candidate.id, {
           status: 'REJECTED',
           payload: { ...payload, d1_note: result.note, d1_date: d1Date }
@@ -160,6 +166,7 @@
         <div>GapATR = (Close_T0 − Open_D1) / ATR14 · нужен <b>1.0–2.0</b></div>
         <div>Open_D1 должен быть &gt; SMA50 ({sma50.toFixed(2)})</div>
         <div>Entry = Buy Limit = Open + 25% гэпа (вариант B) · Stop = Entry − 1.5×ATR · Risk 1%</div>
+        <div style="color:var(--color-acc2)"><b>Отмена если StopDist/Entry &gt; 7%</b> — проверяется автоматически</div>
       </div>
       <div class="row-2" style="margin-bottom:10px">
         <div class="fg"><label>Open D+1</label><input bind:value={openD1} oninput={calcGap} inputmode="decimal" /></div>
@@ -170,23 +177,41 @@
       {#if result?.type === 'gap'}
         {@const gc = result.gapCheck}
         {@const pos = result.pos}
-        <div class="prev" class:prev-bad={!gc.passed} class:prev-ok={gc.passed}>
-          {#if gc.passed}
+        {@const allowed = result.allowed}
+        <div class="prev" class:prev-bad={!allowed} class:prev-ok={allowed}>
+          {#if allowed}
             <div class="prev-h">✓ GAP ВАЛИДЕН · ВХОДИМ</div>
-            <div>GapATR: <b>{gc.gapATR.toFixed(2)}</b> · Gap: <b>{gc.gapPct.toFixed(1)}%</b> ({gc.gapAbs.toFixed(2)})</div>
-            <div>Buy Limit: <b style="color:var(--color-acc)">${pos.buyLimit.toFixed(2)}</b> · Stop: <b style="color:var(--color-acc2)">${pos.stop.toFixed(2)}</b></div>
-            <div>Shares: <b>{pos.shares}</b> · Position: <b>${pos.positionValue.toFixed(0)}</b> · Risk: <b>${pos.riskAmount.toFixed(0)}</b></div>
-            <div>T1: <b>${pos.target1.toFixed(2)}</b> · T2: <b>${pos.target2.toFixed(2)}</b></div>
-            <div style="color:var(--color-acc3);margin-top:6px">⚠ Buy Limit действует первые 30 мин · 17:00 проверка: выход если &lt; ${pos.check1700.toFixed(2)}</div>
           {:else}
             <div class="prev-h">✗ ОТМЕНА</div>
-            <div>{gc.reason}</div>
+          {/if}
+          <!-- Чек-лист — все условия отдельными строками -->
+          <div class="chk-list">
+            <div style="color:{gc.gapAbs > 0 && gc.gapValid ? 'var(--color-acc)' : 'var(--color-acc2)'}">
+              {gc.gapAbs > 0 && gc.gapValid ? '✓' : '✗'} GapATR 1.0–2.0: <b>{gc.gapATR.toFixed(2)}</b> (gap {gc.gapPct.toFixed(1)}%)
+            </div>
+            <div style="color:{gc.aboveSma50 ? 'var(--color-acc)' : 'var(--color-acc2)'}">
+              {gc.aboveSma50 ? '✓' : '✗'} Open &gt; SMA50: <b>{parseNum(openD1) > 0 ? parseNum(openD1).toFixed(2) : '—'}</b> vs <b>{sma50.toFixed(2)}</b>
+            </div>
+            <div style="color:{pos.stopPctOk ? 'var(--color-acc)' : 'var(--color-acc2)'}">
+              {pos.stopPctOk ? '✓' : '✗'} StopDist/Entry ≤ 7%: <b>{(pos.stopPct * 100).toFixed(1)}%</b>
+              {#if !pos.stopPctOk}<span style="font-weight:700"> → СДЕЛКА ОТМЕНЯЕТСЯ</span>{/if}
+            </div>
+          </div>
+          {#if allowed}
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--color-line)">
+              <div>Buy Limit: <b style="color:var(--color-acc)">${pos.buyLimit.toFixed(2)}</b> · Stop: <b style="color:var(--color-acc2)">${pos.stop.toFixed(2)}</b></div>
+              <div>Shares: <b>{pos.shares}</b> · Position: <b>${pos.positionValue.toFixed(0)}</b> · Risk: <b>${pos.riskAmount.toFixed(0)}</b></div>
+              <div>T1: <b>${pos.target1.toFixed(2)}</b> · T2: <b>${pos.target2.toFixed(2)}</b></div>
+              <div style="color:var(--color-acc3);margin-top:6px">⚠ Buy Limit действует первые 30 мин · 17:00 проверка: выход если &lt; ${pos.check1700.toFixed(2)}</div>
+            </div>
+          {:else if !gc.passed}
+            <div style="margin-top:6px">{gc.reason}</div>
           {/if}
         </div>
         <div class="ar">
           <button onclick={onClose}>Отмена</button>
-          <button onclick={saveGap} disabled={saving} class={gc.passed ? 'btn-p' : 'btn-r'}>
-            {saving ? '...' : gc.passed ? 'Сохранить → + Сделка' : 'Пометить REJECTED'}
+          <button onclick={saveGap} disabled={saving} class={allowed ? 'btn-p' : 'btn-r'}>
+            {saving ? '...' : allowed ? 'Сохранить → + Сделка' : 'Пометить REJECTED'}
           </button>
         </div>
       {:else}
@@ -245,5 +270,6 @@
   .prev-ok { background: var(--color-bg3); border: 1px solid var(--color-acc); color: var(--color-text); }
   .prev-bad { background: rgba(255,107,138,0.08); border: 1px solid var(--color-acc2); color: var(--color-text); }
   .prev-h { font-weight: 700; letter-spacing: 1px; margin-bottom: 6px; }
+  .chk-list { display: flex; flex-direction: column; gap: 3px; }
   .ar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 </style>

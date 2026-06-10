@@ -50,9 +50,11 @@
   }
   function meta(c: Candidate) {
     const p = c.payload as any;
+    const atrPct = p?.atr14 && p?.close_t0 ? p.atr14 / p.close_t0 * 100 : undefined;
     return {
       vix: p?.vix, regime: p?.market_regime ?? '—',
       atr14: p?.atr14, closeT0: p?.close_t0, sma50: p?.sma50,
+      atrPct,
       check1700: p?.check_1700_exit
     };
   }
@@ -76,6 +78,7 @@
       <div class="rule-h" style="color:var(--color-acc)">Watchlist T0</div>
       <div>Close &gt; SMA100</div>
       <div>SMA100 растёт (vs 20D)</div>
+      <div><b>ATRp ≤ 5%</b> (ATR/Close)</div>
       <div>Price &gt; $20 · Cap &gt; $10B</div>
       <div>Vol &gt; 3M · Нет earnings 5дн</div>
     </div>
@@ -91,6 +94,7 @@
       <div>Open &gt; SMA50</div>
       <div>Entry = Open + 25% гэпа</div>
       <div>Stop = Entry − 1.5×ATR · Risk 1%</div>
+      <div style="color:var(--color-acc2)"><b>StopDist/Entry &gt; 7% → ОТМЕНА</b></div>
     </div>
     <div class="rule-col">
       <div class="rule-h" style="color:var(--color-acc2)">Выход</div>
@@ -109,6 +113,7 @@
         steps: [
           'Скринер: US Stocks · Price > $20 · Cap > $10B · AvgVol > 3M',
           'Добавь SMA100 → оставь: **Close > SMA100** и **SMA100 сегодня > SMA100 20 дней назад**',
+          'Колонка **ATRp = ATR14/Close** → отсей всё где **ATRp > 5%** (слишком волатильные)',
           'Проверь рынок: **SPY > SMA200** и **VIX < 30** (иначе завтра LONG не торгуем)',
           'Открой earnings calendar → удали акции с **earnings в ближайшие 5 дней**',
           'Останется ~10-50 акций · Нажми **+ Добавить T0** на каждой: SPY/VIX · Close T0 · SMA100 (сегодня + 20D назад) · SMA50 · ATR14',
@@ -122,7 +127,8 @@
           '**GapATR** = (Close_T0 − Open) / ATR14 · нужен **1.0–2.0**',
           'Гэпы > 2 ATR = вероятно реальная переоценка, пропускаем',
           'Второе условие: **Open > SMA50** (гэп не ломает тренд)',
-          '🟢 Прошло → Buy Limit, Stop, T1/T2 рассчитаны · 🔴 Не прошло → REJECTED',
+          '**ОБЯЗАТЕЛЬНО**: StopDistance / Entry **> 7% → СДЕЛКА ОТМЕНЯЕТСЯ** (отдельная строка чек-листа, система проверяет автоматически)',
+          '🟢 Все 3 чека прошли → Buy Limit, Stop, T1/T2 рассчитаны · 🔴 Любой не прошёл → REJECTED',
           'Обычно остаётся 1-5 акций'
         ]
       },
@@ -177,6 +183,7 @@
             <th>Close T0</th>
             <th>SMA50</th>
             <th>ATR14</th>
+            <th>ATRp</th>
             <th>Entry</th>
             <th>Stop</th>
             <th>T1</th>
@@ -195,6 +202,7 @@
               <td>{m.closeT0 !== undefined ? '$' + Number(m.closeT0).toFixed(2) : '—'}</td>
               <td>{m.sma50 !== undefined ? Number(m.sma50).toFixed(2) : '—'}</td>
               <td>{m.atr14 !== undefined ? Number(m.atr14).toFixed(2) : '—'}</td>
+              <td style="color:{m.atrPct !== undefined && m.atrPct <= 5 ? 'var(--color-acc)' : 'var(--color-acc2)'}">{m.atrPct !== undefined ? m.atrPct.toFixed(1) + '%' : '—'}</td>
               <td style="color:var(--color-acc)">{c.entry != null ? '$' + Number(c.entry).toFixed(2) : '—'}</td>
               <td style="color:var(--color-acc2)">{c.stop != null ? '$' + Number(c.stop).toFixed(2) : '—'}</td>
               <td>{c.target1 != null ? '$' + Number(c.target1).toFixed(2) : '—'}</td>
