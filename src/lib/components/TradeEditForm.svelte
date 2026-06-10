@@ -79,7 +79,10 @@
 
   // ─── Close trade section ───
   let exitPrice = $state(trade.exit_price?.toString() ?? '');
-  let exitReason = $state<string>(trade.exit_reason ?? 'TARGET1');
+  // Миграция старых кодов на новые
+  const _reasonMap: Record<string,string> = { TARGET1:'target1', TARGET2:'target2', STOP:'stop', TIME_STOP:'time_stop', MANUAL:'manual' };
+  const _initReason = trade.exit_reason ? (_reasonMap[trade.exit_reason] ?? trade.exit_reason) : 'target1';
+  let exitReason = $state<string>(_initReason);
   let exitDate = $state(trade.exit_date ?? new Date().toISOString().split('T')[0]);
   let extraCommission = $state('0');
 
@@ -212,10 +215,14 @@
           <div class="fg">
             <label>Exit reason</label>
             <select bind:value={exitReason}>
-              <option value="TARGET1">TARGET1</option>
-              <option value="STOP">STOP</option>
-              <option value="TIME_STOP">TIME_STOP (D+5)</option>
-              <option value="MANUAL">MANUAL</option>
+              <option value="target1">target1 — цель 1</option>
+              <option value="target2">target2 — цель 2</option>
+              <option value="stop">stop — стоп-лосс</option>
+              <option value="trail">trail — трейлинг стоп</option>
+              <option value="intraday_check">intraday_check — внутридневная проверка (17:00 и т.п.)</option>
+              <option value="d1_close_check">d1_close_check — no-progress / D+1 EOD check</option>
+              <option value="time_stop">time_stop — тайм-стоп (D+3/D+5)</option>
+              <option value="manual">manual — ручной выход</option>
             </select>
           </div>
         </div>

@@ -179,6 +179,7 @@
             '─ LONG DOWN-LOTTERY правила ─',
             'Time stop: D+3 (среда)',
             'D+1 EOD exit: закрыть если Close ≤ Entry ИЛИ Close < Open',
+            'ЕЖЕДНЕВНО до T1: Close ≤ Entry → выход по Close (d1_close_check)',
             'После T1 (1.5×ATR, 60%): stop = MAX(текущий стоп, Low предыдущего дня)',
             'T2: 2×ATR (40%)'
           ]
@@ -190,7 +191,8 @@
             'T2: 2×ATR (40%)',
             '─ D+1 EOD check (22:45 EET) ─',
             'Close D+1 < Entry → стоп остаётся на Entry + 2×ATR',
-            'Close D+1 ≥ Entry → стоп → Close_D+1 × 1.01'
+            'Close D+1 ≥ Entry → стоп → Close_D+1 × 1.01',
+            'ЕЖЕДНЕВНО до T1: Close ≥ Entry → выход по Close (d1_close_check)'
           ]
         : [];
 
@@ -352,6 +354,7 @@
             <div class="mw-rules">
               <div><b>Time stop:</b> D+3 (среда)</div>
               <div><b>D+1 EOD exit:</b> если Close ≤ Entry или Close &lt; Open → закрыть всю позицию</div>
+              <div><b>Ежедневно до T1:</b> Close ≤ Entry → выход по Close</div>
               <div><b>После T1:</b> stop = MAX(текущий, Low вчерашнего дня)</div>
             </div>
           {:else}
@@ -360,7 +363,8 @@
               <div style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,200,90,0.2)">
                 <b>D+1 EOD check:</b><br>
                 Close &lt; Entry → стоп остаётся (Entry + 2×ATR)<br>
-                Close ≥ Entry → стоп → Close × 1.01
+                Close ≥ Entry → стоп → Close × 1.01<br>
+                <b>Ежедневно до T1:</b> Close ≥ Entry → выход
               </div>
             </div>
           {/if}

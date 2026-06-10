@@ -311,12 +311,20 @@
         when = 'evening'; urgent = true;
         timeLabel = '22:45 EET';
         action = 'D+1 EOD exit check (LONG)';
-        hint = `Если Close ≤ $${entry.toFixed(2)} или красная свеча → закрыть всё`;
+        hint = `Если Close ≤ $${entry.toFixed(2)} или красная свеча → закрыть всё (d1_close_check)`;
       } else if (s === 'max_weekly' && dayN === 1 && dir === 'SHORT') {
         when = 'evening'; urgent = true;
         timeLabel = '22:45 EET';
         action = 'D+1 EOD trail stop (SHORT)';
-        hint = `Если Close ≥ $${entry.toFixed(2)} → стоп = Close × 1.01`;
+        hint = `Если Close ≥ $${entry.toFixed(2)} → стоп = Close × 1.01 · Close ≥ Entry → выход (d1_close_check)`;
+      } else if (s === 'max_weekly' && dayN >= 2 && !t.partial_exit) {
+        // Ежедневный no-progress check до достижения T1
+        when = 'evening'; urgent = true;
+        timeLabel = '22:45 EET';
+        action = `D+${dayN} no-progress check`;
+        hint = dir === 'LONG'
+          ? `Close ≤ Entry $${entry.toFixed(2)} → выход по Close (d1_close_check)`
+          : `Close ≥ Entry $${entry.toFixed(2)} → выход по Close (d1_close_check)`;
       } else if (s === 'ibs_swing' && dayN <= 1 && atr > 0) {
         when = 'evening';
         action = 'D+1 Adverse check';
