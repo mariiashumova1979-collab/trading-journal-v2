@@ -110,8 +110,9 @@
       <span style="margin-left:12px">• <b>Weak Pullback (LONG):</b> L1 &gt; Mid_D0 AND retracement &lt; 50% AND C1 &gt; Mid_D0 (для SHORT зеркально)</span><br>
       <span style="margin-left:12px">• <b>Compression:</b> Range1/Range_D0 &lt; 0.5 AND |C1−C_D0| &lt; 0.3·Range_D0</span>
     </div>
-    <div><b>Entry D+2 (после D+1):</b> {`{High_D+1}`} (LONG) или {`{Low_D+1}`} (SHORT) · <b>Trail stop:</b> max/min(Stop_D0, Low/High_D+1)</div>
+    <div><b>Entry D+2 (после D+1):</b> {`{High_D+1}`} (LONG) или {`{Low_D+1}`} (SHORT) · <b>Начальный stop:</b> max/min(Stop_D0, Low/High_D+1)</div>
     <div><b>Stop D0 (LONG):</b> Low_D0 − 0.2×ATR · <b>SHORT:</b> High_D0 + 0.2×ATR</div>
+    <div style="color:var(--color-acc)"><b>Ежедневный trailing (T0 = день входа), после EOD каждого дня:</b> LONG: stop = max(stop, Low дня) · SHORT: stop = min(stop, High дня) · стоп только подтягивается, никогда не отступает</div>
   </div>
 
   <WorkflowGuide
@@ -155,8 +156,8 @@
         steps: [
           '**Entry**: High_D+1 (LONG) или Low_D+1 (SHORT) · Buy Stop / Sell Stop ордер',
           '**Stop D0**: Low_D0 − 0.2×ATR (LONG) или High_D0 + 0.2×ATR (SHORT)',
-          '**Trail stop**: max(Stop_D0, Low_D+1) для LONG · min(Stop_D0, High_D+1) для SHORT',
-          '**T1**: +1R (50%) · **T2**: +2R · **Time stop**: D+5'
+          '**Начальный stop при входе**: max(Stop_D0, Low_D+1) для LONG · min(Stop_D0, High_D+1) для SHORT',
+          '**T1**: +1R (50%) · **T2**: +2R · **Time stop**: D+5 (от дня входа)'
         ]
       },
       {
@@ -169,11 +170,16 @@
         ]
       },
       {
-        title: 'Управление D+2..D+5',
+        title: 'Управление после входа (T0 = день входа)',
         steps: [
-          'При **+1R**: закрой 50%, стоп в breakeven',
-          'При **+2R**: закрой остаток',
-          'На закрытии **D+5** — Time stop, закрыть позицию MOC'
+          '**Ежедневный trailing stop** — после EOD каждого дня:',
+          '  • **LONG**: новый стоп = max(текущий стоп, Low дня)',
+          '  • **SHORT**: новый стоп = min(текущий стоп, High дня)',
+          'Стоп только подтягивается в сторону прибыли, **никогда не отступает**',
+          'Пример (LONG, вход $100, Stop $96): D+1 Low 98.50 → стоп 98.50 · D+2 Low 101.20 → стоп 101.20 · D+3 Low 100.10 → стоп **остаётся 101.20** · D+4 Low 103 → стоп 103 · D+5 Low касается 103 → **выход по стопу** (exit reason: `trail`)',
+          'При **+1R**: закрой 50%, стоп в breakeven (если выше трейла)',
+          'При **+2R**: закрой остаток (`target2`)',
+          'На закрытии **D+5** — Time stop, закрыть позицию MOC (`time_stop`)'
         ]
       }
     ]}

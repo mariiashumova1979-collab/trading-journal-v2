@@ -335,6 +335,15 @@
         action = 'D+2 Adverse check';
         hint = `${dir === 'LONG' ? 'Close ≤' : 'Close ≥'} Entry $${entry.toFixed(2)} → закрыть`;
         timeLabel = 'После закрытия';
+      } else if (s === 'impulse' && dayN >= 1) {
+        // Ежедневный trailing stop update (T0 = день входа)
+        when = 'evening';
+        const curStop = t.stop != null ? Number(t.stop) : null;
+        action = `D+${dayN} trail update`;
+        hint = dir === 'LONG'
+          ? `Stop = max(текущий ${curStop != null ? '$'+curStop.toFixed(2) : '—'}, Low дня) · только подтягиваем`
+          : `Stop = min(текущий ${curStop != null ? '$'+curStop.toFixed(2) : '—'}, High дня) · только подтягиваем`;
+        timeLabel = 'После закрытия';
       } else {
         when = 'watch';
         const t1 = t.target1 != null ? `$${Number(t.target1).toFixed(2)}` : '—';

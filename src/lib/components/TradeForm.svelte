@@ -220,7 +220,16 @@
         : (() => {
             const p = candidate.payload as any;
             const base = 'D0: ' + candidate.signal_date + ' | Pattern: ' + (p?.pattern || 'N/A') + ' | ATR: ' + (p?.atr?.toFixed(2) || 'N/A');
-            return p?.d1_note ? base + '\n' + p.d1_note : base;
+            const trailRules = [
+              '─ Ежедневный trailing (T0 = день входа) ─',
+              candidate.direction === 'LONG'
+                ? 'После EOD каждого дня: stop = max(stop, Low дня)'
+                : 'После EOD каждого дня: stop = min(stop, High дня)',
+              'Стоп только подтягивается, никогда не отступает',
+              'T1 +1R (50%, BE) · T2 +2R · Time stop D+5 от входа'
+            ].join('\n');
+            const full = base + '\n' + trailRules;
+            return p?.d1_note ? full + '\n' + p.d1_note : full;
           })();
 
       const trade = await insertTrade({
