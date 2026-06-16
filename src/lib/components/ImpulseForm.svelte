@@ -9,8 +9,16 @@
   } from '$lib/strategies/impulse';
   import { insertCandidate } from '$lib/data/candidates';
   import { user } from '$lib/stores/auth';
+  import { onMount } from 'svelte';
+  import { saveDraft, loadDraft, clearDraft, saveCapital } from '$lib/utils/draftStorage';
 
   let { onClose, onAdded }: { onClose: () => void; onAdded: () => void } = $props();
+
+  function _readRisk() {
+    if (typeof window === 'undefined') return '100';
+    const v = localStorage.getItem('tj_capital_impulse');
+    return v && parseFloat(v) > 0 ? v : '100';
+  }
 
   let ticker = $state('');
   let d0Date = $state(new Date().toISOString().split('T')[0]);
@@ -22,11 +30,45 @@
   let d0_V = $state('');
   let atr = $state('');
   let relVol = $state('');
-  let riskAmt = $state('100');
+  let riskAmt = $state(_readRisk());
 
   let errors = $state<string[]>([]);
   let preview = $state<any>(null);
   let saving = $state(false);
+
+  const draftKey = 'impulse_new';
+
+  onMount(() => {
+    const d = loadDraft<any>(draftKey);
+    if (d) {
+      if (d.ticker)  ticker  = d.ticker;
+      if (d.d0Date)  d0Date  = d.d0Date;
+      if (d.d_1_C)   d_1_C   = d.d_1_C;
+      if (d.d0_O)    d0_O    = d.d0_O;
+      if (d.d0_H)    d0_H    = d.d0_H;
+      if (d.d0_L)    d0_L    = d.d0_L;
+      if (d.d0_C)    d0_C    = d.d0_C;
+      if (d.d0_V)    d0_V    = d.d0_V;
+      if (d.atr)     atr     = d.atr;
+      if (d.relVol)  relVol  = d.relVol;
+      if (d.riskAmt) riskAmt = d.riskAmt;
+    }
+    calc();
+  });
+
+  $effect(() => {
+    saveDraft(draftKey, { ticker, d0Date, d_1_C, d0_O, d0_H, d0_L, d0_C, d0_V, atr, relVol, riskAmt });
+    const _r = parseFloat(riskAmt.replace(',','.'));
+    if (!isNaN(_r) && _r > 0) saveCapital('impulse', _r);
+  });
+
+  function resetDraft() {
+    if (!confirm('Очистить все поля?')) return;
+    clearDraft(draftKey);
+    ticker = ''; d_1_C = ''; d0_O = ''; d0_H = ''; d0_L = ''; d0_C = ''; d0_V = '';
+    atr = ''; relVol = ''; riskAmt = '100';
+    preview = null; errors = [];
+  }
 
   function onTickerInput(e: Event) {
     const target = e.target as HTMLInputElement;
@@ -131,6 +173,7 @@
           }
         }
       });
+      clearDraft(draftKey);
       onAdded();
       onClose();
     } catch (e: any) {
@@ -176,25 +219,25 @@
     <div class="row row-5">
       <div class="fg">
         <label for="if-d1c">Close</label>
-        <input id="if-d1c" bind:value={d_1_C} inputmode="decimal" />
+        <input id="if-d1c" bind:value={d_1_C} oninput={calc} inputmode="decimal" />
       </div>
       <div></div><div></div><div></div><div></div>
     </div>
 
     <div class="shdif">Day D0 (impulse)</div>
     <div class="row row-5">
-      <div class="fg"><label for="if-d0o">Open</label><input id="if-d0o" bind:value={d0_O} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-d0h">High</label><input id="if-d0h" bind:value={d0_H} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-d0l">Low</label><input id="if-d0l" bind:value={d0_L} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-d0c">Close</label><input id="if-d0c" bind:value={d0_C} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-d0v">Volume</label><input id="if-d0v" bind:value={d0_V} inputmode="numeric" /></div>
+      <div class="fg"><label for="if-d0o">Open</label><input id="if-d0o" bind:value={d0_O} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-d0h">High</label><input id="if-d0h" bind:value={d0_H} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-d0l">Low</label><input id="if-d0l" bind:value={d0_L} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-d0c">Close</label><input id="if-d0c" bind:value={d0_C} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-d0v">Volume</label><input id="if-d0v" bind:value={d0_V} oninput={calc} inputmode="numeric" /></div>
     </div>
 
     <div class="shdif">Metrics & risk</div>
     <div class="row row-3">
-      <div class="fg"><label for="if-atr">ATR(14)</label><input id="if-atr" bind:value={atr} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-relvol">RelVol</label><input id="if-relvol" bind:value={relVol} inputmode="decimal" /></div>
-      <div class="fg"><label for="if-risk">Риск $</label><input id="if-risk" bind:value={riskAmt} inputmode="numeric" /></div>
+      <div class="fg"><label for="if-atr">ATR(14)</label><input id="if-atr" bind:value={atr} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-relvol">RelVol</label><input id="if-relvol" bind:value={relVol} oninput={calc} inputmode="decimal" /></div>
+      <div class="fg"><label for="if-risk">Риск $</label><input id="if-risk" bind:value={riskAmt} oninput={calc} inputmode="numeric" /></div>
     </div>
 
     {#if errors.length}
@@ -218,8 +261,8 @@
     {/if}
 
     <div class="ar">
+      <button onclick={resetDraft} type="button">↻ Сбросить</button>
       <button onclick={onClose}>Отмена</button>
-      <button onclick={calc}>Рассчитать</button>
       <button onclick={save} disabled={!preview || saving || errors.length > 0} class="btn-p">
         {saving ? 'Сохранение...' : 'Добавить'}
       </button>

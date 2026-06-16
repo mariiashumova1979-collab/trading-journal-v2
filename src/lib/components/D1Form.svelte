@@ -2,6 +2,8 @@
   import { checkImpulseD1Patterns, calculateStopPrice, calculatePosition, parseNum } from '$lib/strategies/impulse';
   import { updateCandidate } from '$lib/data/candidates';
   import { updateTrade } from '$lib/data/trades';
+  import { onMount } from 'svelte';
+  import { saveDraft, loadDraft, clearDraft } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
   let { candidate, onClose, onUpdated }: {
@@ -19,6 +21,22 @@
   let errors = $state<string[]>([]);
   let preview = $state<any>(null);
   let saving = $state(false);
+
+  const draftKey = `impulse_d1_${candidate.id}`;
+  onMount(() => {
+    const d = loadDraft<any>(draftKey);
+    if (d) {
+      if (d.d1_O)    d1_O    = d.d1_O;
+      if (d.d1_H)    d1_H    = d.d1_H;
+      if (d.d1_L)    d1_L    = d.d1_L;
+      if (d.d1_C)    d1_C    = d.d1_C;
+      if (d.d1_Date) d1_Date = d.d1_Date;
+    }
+    calc();
+  });
+  $effect(() => {
+    saveDraft(draftKey, { d1_O, d1_H, d1_L, d1_C, d1_Date });
+  });
 
   function readD1() {
     return {
@@ -134,6 +152,7 @@
         }
       }
 
+      clearDraft(draftKey);
       onUpdated();
       onClose();
     } catch (e: any) {
