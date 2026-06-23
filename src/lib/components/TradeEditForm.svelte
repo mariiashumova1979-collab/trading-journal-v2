@@ -219,6 +219,7 @@
               <option value="target2">target2 — цель 2</option>
               <option value="stop">stop — стоп-лосс</option>
               <option value="trail">trail — трейлинг стоп</option>
+              <option value="ema200">ema200 — закрытие по другую сторону EMA200</option>
               <option value="intraday_check">intraday_check — внутридневная проверка (17:00 и т.п.)</option>
               <option value="d1_close_check">d1_close_check — no-progress / D+1 EOD check</option>
               <option value="time_stop">time_stop — тайм-стоп (D+3/D+5)</option>

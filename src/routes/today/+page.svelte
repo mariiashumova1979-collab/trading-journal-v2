@@ -57,7 +57,7 @@
   // ─── Load ───
   async function load() {
     try {
-      const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal'];
+      const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal','atr_channel'];
       const candArrays = await Promise.all(strategies.map(s => listCandidates(s)));
       candidates = candArrays.flat().filter(c =>
         ['WAITING_OPEN','WAITING_D1','READY_ENTRY','ENTERED'].includes(c.status)
@@ -70,7 +70,7 @@
 
   onMount(() => {
     load();
-    const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal'];
+    const strategies: Strategy[] = ['impulse','max_weekly','ibs_swing','event_continuation','pead','nr7','gap_reversal','atr_channel'];
     strategies.forEach(s => {
       unsubs.push(subscribeCandidates(s, load));
     });
@@ -344,6 +344,15 @@
           ? `Stop = max(текущий ${curStop != null ? '$'+curStop.toFixed(2) : '—'}, Low дня) · только подтягиваем`
           : `Stop = min(текущий ${curStop != null ? '$'+curStop.toFixed(2) : '—'}, High дня) · только подтягиваем`;
         timeLabel = 'После закрытия';
+      } else if (s === 'atr_channel') {
+        // Ежедневный трейлинг + EMA200 check каждый день удержания
+        when = 'evening'; urgent = true;
+        const curStop = t.stop != null ? Number(t.stop) : null;
+        action = `D+${dayN} трейлинг + EMA200 check`;
+        hint = dir === 'LONG'
+          ? `1) Close < EMA200 → выход Open завтра (ema200) · 2) Трейл = HH − 2×ATR · Close < трейл ${curStop != null ? '$'+curStop.toFixed(2) : ''} → выход Open завтра (trailing)`
+          : `1) Close > EMA200 → выход Open завтра (ema200) · 2) Трейл = LL + 2×ATR · Close > трейл ${curStop != null ? '$'+curStop.toFixed(2) : ''} → выход Open завтра (trailing)`;
+        timeLabel = 'После 23:00 EET';
       } else {
         when = 'watch';
         const t1 = t.target1 != null ? `$${Number(t.target1).toFixed(2)}` : '—';

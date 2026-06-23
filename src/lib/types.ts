@@ -1,7 +1,7 @@
 export type TradeType = 'LONG' | 'SHORT';
 export type TradeStatus = 'OPEN' | 'PARTIAL' | 'CLOSED';
 export type TradeResult = 'WIN' | 'LOSS' | null;
-export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly' | 'nr7' | 'gap_reversal';
+export type Strategy = 'impulse' | 'rspc' | 'ibs_swing' | 'pead' | 'event_continuation' | 'max_weekly' | 'nr7' | 'gap_reversal' | 'atr_channel';
 
 export interface Trade {
   id: string;
@@ -205,6 +205,14 @@ export const STRATEGIES: Record<Strategy, StrategyDef> = {
     icon: '↩️',
     color: '#e67e22',
     description: 'Gap Reversal 1 — gap down в восходящем тренде',
+    active: true
+  },
+  atr_channel: {
+    id: 'atr_channel',
+    name: 'ATR Channel',
+    icon: '📊',
+    color: '#9b59b6',
+    description: 'ATR Channel Breakout — трендовый пробой канала ±0.75×ATR(5)',
     active: true
   }
 };
