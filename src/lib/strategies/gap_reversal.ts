@@ -53,10 +53,9 @@ export function calcGapD0Metrics(d: GapD0Data): GapD0Metrics {
   const aboveSma100 = d.close > d.sma100;
   const sma100Rising = d.sma100 > d.sma100_20ago;
   const atrPct = d.close > 0 ? d.atr14 / d.close : 0;
-  const atrPctOk = atrPct <= 0.05;   // отсев слишком волатильных: ATRp > 5%
-  // В watchlist: тренд вверх + приемлемая волатильность
-  const inWatchlist = aboveSma100 && sma100Rising && atrPctOk;
-  return { inWatchlist, marketRegime, aboveSma100, sma100Rising, atrPct, atrPctOk };
+  // В watchlist: тренд вверх (фильтр ATRp убран)
+  const inWatchlist = aboveSma100 && sma100Rising;
+  return { inWatchlist, marketRegime, aboveSma100, sma100Rising, atrPct, atrPctOk: true };
 }
 
 export function validateGapD0(d: GapD0Data, m: GapD0Metrics): GapD0Validation {
@@ -70,8 +69,8 @@ export function validateGapD0(d: GapD0Data, m: GapD0Metrics): GapD0Validation {
   checks.push({ label: 'Close > SMA100', ok: m.aboveSma100, value: `${d.close.toFixed(2)} vs ${d.sma100.toFixed(2)}` });
   checks.push({ label: 'SMA100 растёт (vs 20D)', ok: m.sma100Rising, value: `${d.sma100.toFixed(2)} vs ${d.sma100_20ago.toFixed(2)}` });
   checks.push({
-    label: 'ATRp ≤ 5% (ATR14/Close)',
-    ok: m.atrPctOk,
+    label: 'ATRp (справочно, не блокирует)',
+    ok: true,
     value: `${(m.atrPct * 100).toFixed(2)}%`
   });
   checks.push({

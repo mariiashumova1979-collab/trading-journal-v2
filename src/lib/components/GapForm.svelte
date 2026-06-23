@@ -174,7 +174,7 @@
     </div>
 
     <div class="hint">
-      <div><b>Watchlist (только LONG):</b> Close &gt; SMA100 · SMA100 растёт · <b>ATRp ≤ 5%</b> · Price &gt; $20 · Cap &gt; $10B · Vol &gt; 3M</div>
+      <div><b>Watchlist (только LONG):</b> Close &gt; SMA100 · SMA100 растёт · Price &gt; $20 · Cap &gt; $10B · Vol &gt; 3M</div>
       <div><b>Рынок:</b> SPY &gt; SMA200 · VIX &lt; 30 · Нет earnings ближайшие 5 дней</div>
       <div><b>Завтра ждём:</b> gap down 1.0 ≤ GapATR ≤ 2.0 при Open &gt; SMA50</div>
     </div>

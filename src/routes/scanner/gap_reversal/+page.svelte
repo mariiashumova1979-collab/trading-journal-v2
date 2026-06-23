@@ -78,7 +78,6 @@
       <div class="rule-h" style="color:var(--color-acc)">Watchlist T0</div>
       <div>Close &gt; SMA100</div>
       <div>SMA100 растёт (vs 20D)</div>
-      <div><b>ATRp ≤ 5%</b> (ATR/Close)</div>
       <div>Price &gt; $20 · Cap &gt; $10B</div>
       <div>Vol &gt; 3M · Нет earnings 5дн</div>
     </div>
@@ -113,7 +112,6 @@
         steps: [
           'Скринер: US Stocks · Price > $20 · Cap > $10B · AvgVol > 3M',
           'Добавь SMA100 → оставь: **Close > SMA100** и **SMA100 сегодня > SMA100 20 дней назад**',
-          'Колонка **ATRp = ATR14/Close** → отсей всё где **ATRp > 5%** (слишком волатильные)',
           'Проверь рынок: **SPY > SMA200** и **VIX < 30** (иначе завтра LONG не торгуем)',
           'Открой earnings calendar → удали акции с **earnings в ближайшие 5 дней**',
           'Останется ~10-50 акций · Нажми **+ Добавить T0** на каждой: SPY/VIX · Close T0 · SMA100 (сегодня + 20D назад) · SMA50 · ATR14',
@@ -202,7 +200,7 @@
               <td>{m.closeT0 !== undefined ? '$' + Number(m.closeT0).toFixed(2) : '—'}</td>
               <td>{m.sma50 !== undefined ? Number(m.sma50).toFixed(2) : '—'}</td>
               <td>{m.atr14 !== undefined ? Number(m.atr14).toFixed(2) : '—'}</td>
-              <td style="color:{m.atrPct !== undefined && m.atrPct <= 5 ? 'var(--color-acc)' : 'var(--color-acc2)'}">{m.atrPct !== undefined ? m.atrPct.toFixed(1) + '%' : '—'}</td>
+              <td style="color:var(--color-t2)">{m.atrPct !== undefined ? m.atrPct.toFixed(1) + '%' : '—'}</td>
               <td style="color:var(--color-acc)">{c.entry != null ? '$' + Number(c.entry).toFixed(2) : '—'}</td>
               <td style="color:var(--color-acc2)">{c.stop != null ? '$' + Number(c.stop).toFixed(2) : '—'}</td>
               <td>{c.target1 != null ? '$' + Number(c.target1).toFixed(2) : '—'}</td>
