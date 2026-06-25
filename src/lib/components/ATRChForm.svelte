@@ -6,10 +6,11 @@
   import { saveDraft, loadDraft, clearDraft, saveCapital } from '$lib/utils/draftStorage';
   import type { Candidate } from '$lib/types';
 
-  let { onClose, onAdded, editCandidate = null }: {
+  let { onClose, onAdded, editCandidate = null, prefill = null }: {
     onClose: () => void;
     onAdded: () => void;
     editCandidate?: Candidate | null;
+    prefill?: { ticker?: string; ema200?: number | null; atr5?: number | null } | null;
   } = $props();
 
   const isEdit = !!editCandidate;
@@ -21,11 +22,11 @@
     return v && parseFloat(v) > 0 ? v : '100';
   }
 
-  let ticker   = $state(editCandidate?.ticker ?? '');
+  let ticker   = $state(editCandidate?.ticker ?? prefill?.ticker ?? '');
   let t0Date   = $state(editCandidate?.signal_date ?? new Date().toISOString().split('T')[0]);
   let closeT0  = $state(ep?.close?.toString() ?? '');
-  let ema200   = $state(ep?.ema200?.toString() ?? '');
-  let atr5     = $state(ep?.atr5?.toString() ?? '');
+  let ema200   = $state(ep?.ema200?.toString() ?? prefill?.ema200?.toString() ?? '');
+  let atr5     = $state(ep?.atr5?.toString() ?? prefill?.atr5?.toString() ?? '');
   let rangeT0  = $state(ep?.range_t0?.toString() ?? '');
   let avgVol20 = $state(ep?.avg_vol20?.toString() ?? '');
   let volT0    = $state(ep?.vol_t0?.toString() ?? '');
