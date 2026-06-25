@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { user } from '$lib/stores/auth';
   import { insertTrade } from '$lib/data/trades';
+  import { insertCandidate } from '$lib/data/candidates';
   import { calcATRChMetrics, parseNum } from '$lib/strategies/atr_channel';
   import { saveCapital } from '$lib/utils/draftStorage';
   import type { TradeType } from '$lib/types';
@@ -110,6 +111,43 @@
       errors = ['Ошибка: ' + (e.message || String(e))];
     } finally { saving = false; }
   }
+
+  // Отправить кандидата в /today как ожидающий вход (не открывать сделку сейчас)
+  async function sendToToday() {
+    errors = [];
+    const e = parseNum(entry);
+    if (!ticker.trim()) errors.push('Введи тикер');
+    if (isNaN(e) || e <= 0) errors.push('Введи цену входа');
+    if (errors.length) return;
+    if (!$user) return;
+
+    saving = true;
+    const st = parseNum(stop);
+    const a = parseNum(atr5);
+    try {
+      const t = ticker.trim().toUpperCase();
+      const today = new Date().toISOString().split('T')[0];
+      const id = `${t}_ATRCH_${today}_${Date.now()}`;
+      await insertCandidate({
+        id, user_id: $user.id, strategy: 'atr_channel',
+        ticker: t, signal_date: today,
+        direction, status: 'READY_ENTRY',
+        entry: e,
+        stop: isNaN(st) ? null : st,
+        target1: null, target2: null,
+        payload: {
+          direction,
+          ema200: parseNum(ema200) || null,
+          atr5: isNaN(a) ? null : a,
+          manual: true,
+          note: `Произвольный вход (из Universe) · ${direction} @ ${e.toFixed(2)}`
+        }
+      });
+      onSaved(); onClose();
+    } catch (e: any) {
+      errors = ['Ошибка: ' + (e.message || String(e))];
+    } finally { saving = false; }
+  }
 </script>
 
 <div class="mo-bg" onclick={onClose} role="presentation">
@@ -170,6 +208,7 @@
 
     <div class="ar">
       <button onclick={onClose}>Отмена</button>
+      <button onclick={sendToToday} disabled={saving} class="btn-today">→ В Today (ждать входа)</button>
       <button onclick={save} disabled={saving} class="btn-p">{saving ? 'Сохранение...' : 'Открыть сделку'}</button>
     </div>
   </div>
@@ -192,5 +231,8 @@
   .suggest b { color: var(--color-text); }
   .apply { font-size: 9px; padding: 4px 10px; flex-shrink: 0; }
   .err { padding: 8px 12px; background: #ff000010; border: 1px solid #ff000040; color: var(--color-acc2); font-family: var(--font-mono); font-size: 10px; border-radius: 6px; margin: 10px 0; }
-  .ar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .ar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .btn-today { background: rgba(155,89,182,0.12); border: 1px solid #9b59b6; color: #9b59b6; font-family: var(--font-mono); font-size: 11px; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  .btn-today:hover { background: rgba(155,89,182,0.2); }
+  .btn-today:disabled { opacity: 0.5; cursor: default; }
 </style>

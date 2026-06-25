@@ -264,6 +264,20 @@
         }
       }
 
+      else if (c.strategy === 'atr_channel') {
+        if (c.status === 'READY_ENTRY') {
+          when = 'morning';
+          urgent = true;
+          const entryStr = entry != null ? `$${entry.toFixed(2)}` : '—';
+          action = dir === 'LONG' ? `Buy Stop ${entryStr}` : `Sell Stop ${entryStr}`;
+          trigger = entryStr;
+          const p = c.payload as any;
+          const isManual = p?.manual;
+          hint = `${isManual ? '✋ Произвольный вход · ' : ''}Stop: ${stop != null ? '$'+stop.toFixed(2) : '—'} · ордер 1 день · трейлинг HH/LL ∓ 2×ATR · TP нет`;
+          timeLabel = 'Открытие';
+        }
+      }
+
       if (when === 'watch' && !action) {
         if (c.status === 'WAITING_D1') {
           when = 'evening'; action = 'Ввести D+1 данные'; hint = 'Данные закрытия дня';
