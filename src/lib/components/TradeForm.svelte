@@ -36,6 +36,11 @@
   let riskAmt = $state('100');
   let commission = $state('0');
 
+  // Для произвольной (manual) ATR Channel сделки — ручной ввод стопа без ATR
+  const isManualAtr = candidate.strategy === 'atr_channel' && (candidate.payload as any)?.manual
+    && (candidate.stop === null || candidate.stop === undefined);
+  let fillStop = $state(candidate.stop != null ? Number(candidate.stop).toFixed(2) : '');
+
   let errors = $state<string[]>([]);
   let warnings = $state<string[]>([]);
   let preview = $state<any>(null);
@@ -108,13 +113,36 @@
 
       preview = { entry, stop, target1, target2, shares, positionValue, riskPerShare, riskAtrRatio };
     } else if (isGeneric) {
-      // IBS / NR7 / Event / PEG — stop/target уже сохранены в кандидате
-      if (!candidate.direction || candidate.stop === null || candidate.stop === undefined) {
-        errors = ['Стоп не рассчитан — сначала заполни D+1 форму'];
+      // IBS / NR7 / Event / PEG / ATR Channel — stop/target уже сохранены в кандидате
+      const isAtrCh = candidate.strategy === 'atr_channel';
+      const p = candidate.payload as any;
+      const isManual = isAtrCh && p?.manual;
+
+      let stopVal = candidate.stop !== null && candidate.stop !== undefined ? Number(candidate.stop) : null;
+      // ATR Channel: если стоп пуст, пробуем из Entry ∓ 2×ATR(5) (но НЕ обязательно для manual)
+      if (isAtrCh && stopVal === null) {
+        const a5 = Number(p?.atr5 || p?.atr14 || p?.atr || 0);
+        if (a5 > 0 && candidate.direction) {
+          stopVal = candidate.direction === 'LONG' ? entry - 2 * a5 : entry + 2 * a5;
+        }
+      }
+
+      // Для произвольной (manual) сделки стоп можно ввести прямо здесь — поле fillStop
+      if (isManual && stopVal === null) {
+        const manualStop = parseNum(fillStop);
+        if (!isNaN(manualStop) && manualStop > 0) stopVal = manualStop;
+      }
+
+      if (!candidate.direction || stopVal === null) {
+        errors = isManual
+          ? ['Введи Stop в поле ниже (для произвольной сделки ATR не нужен)']
+          : isAtrCh
+          ? ['Стоп не задан — укажи через ✎ или впиши ATR(5)']
+          : ['Стоп не рассчитан — сначала заполни D+1 форму'];
         preview = null;
         return;
       }
-      const stop = Number(candidate.stop);
+      const stop = stopVal;
       const riskPerShare = Math.abs(entry - stop);
       if (riskPerShare <= 0) { errors = ['Entry слишком близко к Stop']; preview = null; return; }
       const shares = Math.floor(risk / riskPerShare);
@@ -328,6 +356,16 @@
         <input id="tf-comm" bind:value={commission} inputmode="decimal" />
       </div>
     </div>
+
+    {#if isManualAtr}
+      <div class="row">
+        <div class="fg">
+          <label for="tf-fillstop">Stop (произвольная сделка — ввести вручную)</label>
+          <input id="tf-fillstop" bind:value={fillStop} oninput={calc} inputmode="decimal" placeholder="Цена стопа" />
+        </div>
+        <div></div>
+      </div>
+    {/if}
 
     <!-- GAP CHECK для MAX Weekly -->
     {#if isMaxWeekly && gapAlert}
